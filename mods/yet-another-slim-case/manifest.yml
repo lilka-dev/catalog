@@ -1,0 +1,17 @@
+name:
+  uk: "Ще один компактний корпус для Lilka v2"
+  en: "Yet another compact case for Lilka v2"
+short_description:
+  uk: "Компактний корпус для Lilka v2"
+  en: "A compact case for Lilka v2"
+description: "@DESCRIPTION.md"
+author: "@xidjex"
+icon: "image1.jpg"
+sources:
+  type: printables
+  location:
+    origin: https://www.printables.com/model/1797035-case-for-lilka-v2
+screenshots:
+  - image1.jpg
+  - image2.jpg
+  - image3.jpg
