@@ -1,0 +1,22 @@
+name:
+  uk: PC Monitoring
+  en: PC Monitoring
+keira_version: 1.0.0
+short_description:
+  uk: Дашборд для моніторингу ПК через Prometheus на Лілці
+  en: Prometheus-based PC stats dashboard for Lilka
+description: "@DESCRIPTION.md"
+changelog: "@CHANGELOG.md"
+author: "@black-ghost-off"
+sources:
+  type: git
+  location:
+    origin: https://github.com/lilka-dev/PC_monitoring
+entryfile:
+  type: binary
+  location:
+    origin: https://github.com/lilka-dev/PC_monitoring/releases/download/v1.0.0/PC_monitoring.bin
+keira_version: 1.0.0
+icon: image.png
+screenshots:
+  - image.png
