@@ -13,7 +13,7 @@ short_description:
   uk: Демонстраційна прошивка написана на Rust/LilkaOxide для візуалізації даних Pinecil по BLE
   en: A demo firmware written in Rust/LilkaOxide for visualizing Pinecil data via BLE
 description: "@DESCRIPTION.md"
-author: "ImbirWithoutSugar(LilkaOxide)"
+author: "@ImbirWithoutSugar"
 license: MIT
 keira_version: 1.0.0
 icon: imgzer0.jpg

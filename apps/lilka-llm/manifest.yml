@@ -6,7 +6,7 @@ short_description:
   uk: LLM модель на українській яка запускається локально на Лілці
   en: An LLM model in Ukrainian that runs locally on Lilka
 description: "@DESCRIPTION.md"
-author: "@ImbirWithoutSugar(LilkaOxide)"
+author: "@ImbirWithoutSugar"
 license: MIT
 icon: icon.png
 sources:
