@@ -13,7 +13,7 @@ short_description:
   uk: Багаторежимний Bluetooth HID контролер для Lilka v2 (Геймпад/Миша/Клавіатура)
   en: Multi-mode Bluetooth HID Controller for Lilka v2 (Gamepad/Mouse/Keyboard)
 description: "@DESCRIPTION.md"
-author: "@lilka-dev"
+author: "@black-ghost-off"
 license: MIT
 keira_version: 1.0.0
 icon: image0.png
