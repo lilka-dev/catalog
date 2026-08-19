@@ -1,6 +1,6 @@
 # Twenty Forty Eight
 
-Classic 2048 game (MJS engine).
+Classic 2048 game (LUA engine).
 
 ## Description
 
@@ -24,4 +24,4 @@ Twenty Forty Eight is an implementation of the popular 2048 puzzle. Slide number
 
 ## Installation
 
-Copy the `twenty-forty-eight.js` file to the device's SD card.
+Copy the `twenty-forty-eight.lua` file to the device's SD card or install via the Lil Catalog directly in Lilka.

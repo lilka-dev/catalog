@@ -1,17 +1,18 @@
 name:
-  uk: '2048 (mJS)'
-  en: '2048 (mJS)'
+  uk: '2048 (Lua)'
+  en: '2048 (Lua)'
 sources:
   type: git
   location:
     origin: https://github.com/dannycaessar/twenty-forty-eight
 entryfile:
-  type: JS
+  type: lua
   location:
-    origin: https://raw.githubusercontent.com/dannycaessar/twenty-forty-eight/refs/heads/master/twenty-forty-eight.js
+    origin: https://raw.githubusercontent.com/dannycaessar/twenty-forty-eight/refs/heads/master/twenty-forty-eight.lua
 short_description:
   uk: Класична гра 2048
   en: Classic game 2048
+changelog: "@CHANGELOG.md"
 description: "@DESCRIPTION.md"
 author: "@dannycaessar"
 license: MIT
