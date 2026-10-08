@@ -3,6 +3,7 @@ const UI_STRINGS = {
   uk: {
     'subtitle': 'Ігри, інструменти та модифікації для DIY-консолі Лілка',
     'tab-apps': 'Додатки',
+    'tab-wallpapers': 'Шпалери',
     'tab-mods': 'Моди',
     'tab-authors': 'Автори',
     'tab-examples': 'Приклади',
@@ -18,6 +19,7 @@ const UI_STRINGS = {
   en: {
     'subtitle': 'Games, tools, and modifications for the Lilka DIY console',
     'tab-apps': 'Apps',
+    'tab-wallpapers': 'Wallpapers',
     'tab-mods': 'Mods',
     'tab-authors': 'Authors',
     'tab-examples': 'Examples',
@@ -787,10 +789,14 @@ class LilkaRepository {
     for (const author of authorNames) {
       const items = authors[author];
       const apps = items.filter(i => i.type === 'apps');
+      const wallpapers = items.filter(i => i.type === 'wallpapers');
       const mods = items.filter(i => i.type === 'mods');
       const badge = [];
       if (apps.length)
         badge.push(`${apps.length} app${apps.length > 1 ? 's' : ''}`);
+      if (wallpapers.length)
+        badge.push(`${wallpapers.length} wallpaper${
+            wallpapers.length > 1 ? 's' : ''}`);
       if (mods.length)
         badge.push(`${mods.length} mod${mods.length > 1 ? 's' : ''}`);
 
@@ -808,7 +814,8 @@ class LilkaRepository {
       for (const item of items) {
         const iconPath =
             item.icon ? `${item.type}/${item.path}/static/${item.icon}` : '';
-        const typeLabel = item.type === 'apps' ? 'App' : 'Mod';
+        const typeLabel =
+            {apps: 'App', wallpapers: 'Wallpaper', mods: 'Mod'}[item.type];
         const itemName = this.localized(item, 'name');
         const itemShortDesc = this.localized(item, 'short_description') || '';
         html += `<div class="author-item-card" data-item-type="${
@@ -989,8 +996,11 @@ class LilkaRepository {
 
   renderFilesSection(manifest, basePath) {
     let html = '';
+    // Analytics attribute for the item kind: 'app', 'wallpaper' or 'mod'
+    const itemAttr = this.currentType.slice(0, -1);
 
-    if (this.currentType === 'apps' && manifest.entryfile &&
+    if (['apps', 'wallpapers'].includes(this.currentType) &&
+        manifest.entryfile &&
         manifest.entryfile.location) {
       const entryFile = manifest.entryfile;
       html += `
@@ -1001,7 +1011,8 @@ class LilkaRepository {
           <p><strong>File:</strong> ${this.escapeHtml(entryFile.location)}</p>
           <a href="${basePath}/static/${
           entryFile
-              .location}" download class="download-btn" data-umami-event="download-entry-file" data-umami-event-app="${
+              .location}" download class="download-btn" data-umami-event="download-entry-file" data-umami-event-${
+          itemAttr}="${
           this.escapeHtml(manifest.name)}">⬇️ Download Entry File</a>
         </div>`;
     }
@@ -1015,7 +1026,7 @@ class LilkaRepository {
               .map(
                   f => this.renderFileItem(
                       f, basePath, manifest.name, 'download-additional-file',
-                      'app'))
+                      itemAttr))
               .join('')}
         </div>`;
     }
@@ -1041,7 +1052,8 @@ class LilkaRepository {
           <a href="${basePath}/${
           manifest
               .package}" download class="download-btn" data-umami-event="download-package-zip" data-umami-event-item="${
-          this.escapeHtml(manifest.name)}">⬇️ Download ZIP</a>
+          this.escapeHtml(manifest.name)}" data-umami-event-category="${
+          this.currentType}">⬇️ Download ZIP</a>
         </div>`;
     }
 

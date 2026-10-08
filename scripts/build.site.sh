@@ -59,6 +59,7 @@ REQUIRED_FILES=(
     "build/styles.css"
     "build/script.js"
     "build/apps/index_0.json"
+    "build/wallpapers/index_0.json"
     "build/mods/index_0.json"
 )
 

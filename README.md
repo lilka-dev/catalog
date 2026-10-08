@@ -2,14 +2,14 @@
 
 [Українська версія / Ukrainian version](README.uk.md)
 
-A static website for browsing Lilka apps and mods.
+A static website for browsing Lilka apps, wallpapers and mods.
 
 ## Features
 
 - **Detailed Modal Views**: Click any item to see full details including:
   - Description and changelog (markdown formatted)
   - Author information
-  - Download links for execution files (apps) or mod files (mods)
+  - Download links for execution files (apps, wallpapers) or mod files (mods)
   - Download link for packaged ZIP (`manifest.yml` + entry/mod/additional files)
   - Source repository links
   - Icons and screenshots
@@ -27,6 +27,10 @@ apps/                   # Source apps directory
 │   ├── CHANGELOG.md      # Version history
 │   ├── icon.png          # App icon
 │   └── screenshot*.png   # Screenshots
+
+wallpapers/             # Source Lua wallpapers/screensavers (same layout as apps)
+├── [wallpaper-name]/
+│   └── manifest.yml
 
 mods/                   # Source mods directory
 ├── [mod-name].case/
@@ -87,7 +91,7 @@ fields only produce warnings in `build/warnings.json`.
 | Field | Applies to | Description |
 |-------|-----------|-------------|
 | `name` | apps & mods | Item name. Plain string or localized map (`uk`/`en`) |
-| `keira_version` | apps only | Minimum Keira firmware version the app requires |
+| `keira_version` | apps & wallpapers | Minimum Keira firmware version the app requires |
 | `short_description` | apps & mods | Brief description. Plain string or localized map |
 | `author` | apps & mods | Author name |
 | `sources` | apps & mods | Source repository. Must contain `type` and `location.origin` |
@@ -107,7 +111,7 @@ sources:
 | `changelog` | apps & mods | Version history. Inline text, localized map, or `"@CHANGELOG.md"` file reference |
 | `icon` | apps & mods | Icon file (local path or URL). Compressed to max 512x512; a 64x64 RGB565 `icon_min` is generated for the device |
 | `screenshots` | apps & mods | List of images (local paths or URLs). Compressed to max 1920x1080 |
-| `entryfile` | apps only | The app's executable file, with `type` (`lua`, `archive`, or `binary`) and `location.origin`. `executionfile` is accepted as a legacy alias |
+| `entryfile` | apps & wallpapers | The app's executable file, with `type` (`lua`, `archive`, or `binary`) and `location.origin`. `executionfile` is accepted as a legacy alias |
 | `files` | apps & mods | List of additional files to bundle, each with `location.origin` |
 | `modfiles` | mods only | List of mod files, each with a `name` and `location.origin` |
 
@@ -156,6 +160,22 @@ entryfile:
    ```
 
 4. Submit a Pull Request
+
+### For Wallpapers
+
+Wallpapers are Lua screensavers, animated backgrounds and watchfaces.
+
+1. Create a new directory in `wallpapers/`
+2. Use the same `manifest.yml` structure as apps (`keira_version` is required),
+   with a `lua` entryfile:
+```yaml
+entryfile:
+  type: lua
+  location:
+    origin: https://url-to-your-wallpaper.lua
+```
+
+3. Add required files and submit a Pull Request
 
 ### For Mods
 
@@ -232,7 +252,7 @@ Run `python build.py --build` locally to test before submitting.
 
 ## How It Works
 
-1. **Index Files**: The site loads `apps/index_0.json` or `mods/index_0.json` based on the selected tab
+1. **Index Files**: The site loads `apps/index_0.json`, `wallpapers/index_0.json` or `mods/index_0.json` based on the selected tab
 2. **Pagination**: Each index file contains:
    - Current page number
    - Total pages available
@@ -293,6 +313,12 @@ You can also deploy manually by uploading the `build/` directory to:
 
 ## Building
 
+Install the Python dependencies (Python 3.9+):
+
+```bash
+pip install -r requirements.txt
+```
+
 Run the build script to compile the complete static site:
 
 ```bash
@@ -300,7 +326,7 @@ Run the build script to compile the complete static site:
 ```
 
 This will:
-1. Process all manifests in `apps/` and `mods/` directories (via `build.py`)
+1. Process all manifests in `apps/`, `wallpapers/` and `mods/` directories (via `build.py`)
 2. Generate JSON index files with proper pagination
 3. Download/copy static assets (icons, execution files, mod files)
 4. Copy site files (HTML, CSS, JS) to `build/` directory

@@ -1482,6 +1482,12 @@ footer {
     border: 1px solid rgba(129, 140, 248, 0.3);
 }
 
+.author-item-type.type-wallpapers {
+    background-color: rgba(251, 191, 36, 0.15);
+    color: var(--warning);
+    border: 1px solid rgba(251, 191, 36, 0.3);
+}
+
 .author-item-type.type-mods {
     background-color: rgba(52, 211, 153, 0.15);
     color: var(--success);

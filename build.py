@@ -14,7 +14,7 @@ import threading
 import time
 from datetime import datetime
 
-args = argparse.ArgumentParser(description="Builds the keira app and mod files")
+args = argparse.ArgumentParser(description="Builds the keira app, wallpaper and mod files")
 args.add_argument("--build", help="Build json files for mods and apps", action='store_true', default=False)
 args.add_argument("--shortjson", help="Build short json files for mods and apps", action='store_true', default=False)
 args.add_argument("--workers", help="Number of parallel workers", type=int, default=8)
@@ -129,6 +129,9 @@ def add_warning(name, warning_type, message, item_type=None):
     with warnings_lock:
         build_warnings.append(warning)
     logger.warning(message, name)
+
+# Item types that ship a Keira entryfile (apps and Lua wallpapers)
+ENTRYFILE_TYPES = ("app", "wallpaper")
 
 # Maximum dimensions for images (width, height)
 MAX_IMAGE_WIDTH = 1920
@@ -293,7 +296,7 @@ def generate_security_info(output_dir, manifest, item_type):
     # Collect paths of downloadable files
     files_to_check = []
 
-    if item_type == "app":
+    if item_type in ENTRYFILE_TYPES:
         ef = manifest.get('entryfile') or manifest.get('executionfile')
         if ef and ef.get('location'):
             files_to_check.append(ef['location'])
@@ -371,10 +374,10 @@ def gen_static_folder(manifest, type, output_dir) -> dict:
     download_tasks = []
     
     # Handle entryfile (main execution file) - new format
-    if type == "app" and manifest.get('entryfile'):
+    if type in ENTRYFILE_TYPES and manifest.get('entryfile'):
         download_tasks.append(('entryfile', manifest['entryfile']['location'], static_files_path))
     # Handle executionfile (legacy format) - keep for backwards compatibility
-    elif type == "app" and manifest.get('executionfile'):
+    elif type in ENTRYFILE_TYPES and manifest.get('executionfile'):
         download_tasks.append(('executionfile', manifest['executionfile']['location'], static_files_path))
     
     # Handle additional files
@@ -476,7 +479,7 @@ def create_package_zip(manifest, type, output_dir) -> str:
 
     files_to_add = []
 
-    if type == "app":
+    if type in ENTRYFILE_TYPES:
         if manifest.get('entryfile') and manifest['entryfile'].get('location'):
             files_to_add.append(manifest['entryfile']['location'])
         elif manifest.get('executionfile') and manifest['executionfile'].get('location'):
@@ -531,7 +534,7 @@ def process_manifest(manifest, type) -> None:
         manifest = gen_static_folder(manifest, type, output_dir)
         package_filename = create_package_zip(manifest, type, output_dir)
 
-        if type == "app":
+        if type in ENTRYFILE_TYPES:
             short_data = {
                 "name": manifest["name"],
                 "short_description": manifest["short_description"]
@@ -582,7 +585,7 @@ def process_manifest(manifest, type) -> None:
         if manifest.get("changelog"):
             full_data["changelog"] = manifest["changelog"]
         
-        if type == "app":
+        if type in ENTRYFILE_TYPES:
             # Include entryfile if it exists (new format)
             if manifest.get("entryfile"):
                 full_data["entryfile"] = manifest["entryfile"]
@@ -693,7 +696,7 @@ def validate_app_files(src, manifest, type) -> bool:
     logger.debug(f"Validating files...", src)
     
     # Validate entryfile type matches file extension
-    if type == "app":
+    if type in ENTRYFILE_TYPES:
         entryfile = manifest.get('entryfile') or manifest.get('executionfile')
         validate_entryfile_type(src, entryfile, type)
     
@@ -720,7 +723,7 @@ def validate_app_files(src, manifest, type) -> bool:
             if 'github.com' in repo_url:
                 http_tasks.append(('repo', repo_url, True))  # (type, url, is_critical)
     
-    if type == "app":
+    if type in ENTRYFILE_TYPES:
         exec_file = manifest.get('entryfile') or manifest.get('executionfile')
         if isinstance(exec_file, dict) and exec_file.get('location'):
             location = exec_file['location']
@@ -910,7 +913,7 @@ def check_manifest(src, type) -> dict:
         add_warning(src, "missing_field", "Name not found in manifest file", type)
         return None
     
-    if type == "app":
+    if type in ENTRYFILE_TYPES:
         if 'keira_version' in manifest:
             logger.debug(f"keira_version: {manifest['keira_version']}", src)
         else:
@@ -962,7 +965,7 @@ def check_manifest(src, type) -> dict:
         add_warning(src, "missing_field", "sources not found in manifest file", type)
         return None
     
-    if type == "app":
+    if type in ENTRYFILE_TYPES:
         # Check for entryfile (new format) or executionfile (legacy)
         if 'entryfile' not in manifest and 'executionfile' not in manifest:
             add_warning(src, "missing_field", "entryfile/executionfile not found in manifest file (optional)", type)
@@ -1021,11 +1024,11 @@ def process_folder(items, type):
     progress.final_summary()
     return sorted(results)
 
-def gen_authors_index(apps, mods) -> None:
+def gen_authors_index(apps, wallpapers, mods) -> None:
     """Generate authors.json grouping all manifests by author."""
     authors = {}
 
-    for item_type, items in (("apps", apps), ("mods", mods)):
+    for item_type, items in (("apps", apps), ("wallpapers", wallpapers), ("mods", mods)):
         for item in items:
             manifest_path = os.path.join("./build", item_type, item, "index.json")
             if not os.path.exists(manifest_path):
@@ -1082,20 +1085,24 @@ def main():
     print(f"{'─' * 60}\n")
     
     apps: list[str] = scan_folder('./apps')
+    wallpapers: list[str] = scan_folder('./wallpapers')
     mods: list[str] = scan_folder('./mods')
 
     print(f"📱 Found \033[1m{len(apps)}\033[0m apps")
+    print(f"🖼️  Found \033[1m{len(wallpapers)}\033[0m wallpapers")
     print(f"🔩 Found \033[1m{len(mods)}\033[0m mods\n")
 
     # Process in parallel and get successfully processed items
     processed_apps = process_folder(apps, 'app')
+    processed_wallpapers = process_folder(wallpapers, 'wallpaper')
     processed_mods = process_folder(mods, 'mod')
 
     if args.build:
         print(f"\n\033[94mℹ️  Generating index files...\033[0m")
         gen_json_index_manifests(processed_apps, "app")
+        gen_json_index_manifests(processed_wallpapers, "wallpaper")
         gen_json_index_manifests(processed_mods, "mod")
-        gen_authors_index(processed_apps, processed_mods)
+        gen_authors_index(processed_apps, processed_wallpapers, processed_mods)
         print(f"\033[92m✅ Index files generated\033[0m")
     
     # Write warnings to JSON file
@@ -1117,6 +1124,7 @@ def main():
     print(f"{'─' * 60}")
     print(f"  ⏱️  Total time: \033[1m{elapsed_time:.2f}s\033[0m")
     print(f"  📱 Apps processed: \033[92m{len(processed_apps)}\033[0m / {len(apps)}")
+    print(f"  🖼️  Wallpapers processed: \033[92m{len(processed_wallpapers)}\033[0m / {len(wallpapers)}")
     print(f"  🔩 Mods processed: \033[92m{len(processed_mods)}\033[0m / {len(mods)}")
     print(f"  ⚠️  Total warnings: \033[93m{len(build_warnings)}\033[0m")
     print(f"  📄 Warnings file: build/warnings.json")
