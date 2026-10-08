@@ -838,6 +838,55 @@ main {
     gap: 0.5rem;
 }
 
+.security-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.security-info-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.4rem;
+    height: 1.4rem;
+    padding: 0;
+    border-radius: 50%;
+    border: 1px solid var(--border-solid);
+    background: none;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all var(--transition);
+}
+
+.security-info-btn:hover,
+.security-info-btn[aria-expanded="true"] {
+    background-color: var(--primary-color);
+    border-color: var(--primary-color);
+    color: white;
+}
+
+.security-info {
+    margin-bottom: 0.75rem;
+    padding: 0.75rem 1rem;
+    background-color: var(--surface);
+    border: 1px solid var(--border-solid);
+    border-radius: var(--radius-xs);
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+.security-info ul {
+    margin: 0.4rem 0 0;
+    padding-left: 1.2rem;
+}
+
+.security-info li + li {
+    margin-top: 0.25rem;
+}
+
 .security-date {
     font-size: 0.8rem;
     color: var(--text-muted);

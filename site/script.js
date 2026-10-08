@@ -8,6 +8,12 @@ const UI_STRINGS = {
     'tab-examples': 'Приклади',
     'tab-docs': 'Документація',
     'loading': 'Завантаження...',
+    'av-info-title': 'Як ми перевіряємо файли',
+    'av-info-1': 'Кожен файл для завантаження (включно з package.zip) перевіряється антивірусом ClamAV під час кожної збірки каталогу в GitHub Actions.',
+    'av-info-2': 'Перед скануванням бази сигнатур оновлюються до найновіших (freshclam).',
+    'av-info-3': 'Вміст архівів також сканується.',
+    'av-info-4': 'Для кожного файлу публікуються контрольні суми SHA-256 та MD5 — порівняйте їх із завантаженим файлом, щоб переконатися, що його не змінено.',
+    'av-info-5': 'Антивірус не дає 100% гарантії — завантажуйте лише ті застосунки, авторам яких довіряєте.',
   },
   en: {
     'subtitle': 'Games, tools, and modifications for the Lilka DIY console',
@@ -17,6 +23,12 @@ const UI_STRINGS = {
     'tab-examples': 'Examples',
     'tab-docs': 'Documentation',
     'loading': 'Loading...',
+    'av-info-title': 'How we check files',
+    'av-info-1': 'Every downloadable file (including package.zip) is scanned with the ClamAV antivirus on each catalog build in GitHub Actions.',
+    'av-info-2': 'Virus signature databases are updated to the latest version (freshclam) right before scanning.',
+    'av-info-3': 'Contents of archives are scanned too.',
+    'av-info-4': 'SHA-256 and MD5 checksums are published for every file — compare them with your download to make sure it was not modified.',
+    'av-info-5': 'No antivirus is a 100% guarantee — only install apps from authors you trust.',
   },
 };
 
@@ -1092,14 +1104,29 @@ class LilkaRepository {
         '<span class="security-badge security-clean">✅ All files clean</span>' :
         '<span class="security-badge security-infected">⚠️ Threats detected</span>';
 
+    const t = UI_STRINGS[this.currentLang] || UI_STRINGS[this.defaultLanguage];
+    const infoBtn = hasAvScan ?
+        `<button type="button" class="security-info-btn" aria-expanded="false"
+            aria-controls="securityInfo" title="${t['av-info-title']}"
+            aria-label="${t['av-info-title']}">!</button>` :
+        '';
+    const infoPanel = hasAvScan ? `
+        <div class="security-info" id="securityInfo" hidden>
+          <strong>${t['av-info-title']}</strong>
+          <ul>
+            ${[1, 2, 3, 4, 5].map(i => `<li>${t['av-info-' + i]}</li>`).join('')}
+          </ul>
+        </div>` :
+                                  '';
+
     return `
       <div class="modal-section security-section">
         <h3>🛡️ Security</h3>
         <div class="security-header">
-          ${overallBadge}
+          <span class="security-status">${overallBadge}${infoBtn}</span>
           <span class="security-date">Scanned: ${
         this.escapeHtml(scanDate)}</span>
-        </div>
+        </div>${infoPanel}
         <div class="security-files">
           ${sec.files.map(f => this.renderSecurityFile(f)).join('')}
         </div>
@@ -1230,6 +1257,17 @@ class LilkaRepository {
         e.preventDefault();
         e.stopPropagation();
         this.navigateToAuthor(modalAuthorLink.dataset.author);
+      });
+    }
+
+    // Antivirus info toggle
+    const avInfoBtn = modalBody.querySelector('.security-info-btn');
+    const avInfo = modalBody.querySelector('.security-info');
+    if (avInfoBtn && avInfo) {
+      avInfoBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        avInfo.hidden = !avInfo.hidden;
+        avInfoBtn.setAttribute('aria-expanded', String(!avInfo.hidden));
       });
     }
 
