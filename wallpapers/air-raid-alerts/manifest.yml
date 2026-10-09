@@ -1,0 +1,20 @@
+name:
+  uk: Повітряні тривоги (LUA)
+  en: Air Raid Alerts (LUA)
+keira_version: 1.0.0
+short_description:
+  uk: "Карта України з активними повітряними тривогами по областях, оновлюється кожні 30 секунд (Wi-Fi)"
+  en: "A map of Ukraine with active air raid alerts by oblast, refreshed every 30 seconds (Wi-Fi)"
+description: "@DESCRIPTION.md"
+author: "@black-ghost-off"
+icon: screenshot.png
+screenshots:
+  - screenshot.png
+sources:
+  type: git
+  location:
+    origin: https://github.com/black-ghost-off/lilka_wallpapers/tree/main/alerts
+entryfile:
+  type: lua
+  location:
+    origin: https://raw.githubusercontent.com/black-ghost-off/lilka_wallpapers/refs/heads/main/alerts/wallpaper.lua

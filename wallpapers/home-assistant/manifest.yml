@@ -1,0 +1,20 @@
+name:
+  uk: Home Assistant (LUA)
+  en: Home Assistant (LUA)
+keira_version: 1.0.0
+short_description:
+  uk: "Панель Home Assistant: датчики, світло та вимикачі у вигляді плиток, які можна перемикати (Wi-Fi)"
+  en: "A Home Assistant panel: sensors, lights and switches as tiles you can toggle (Wi-Fi)"
+description: "@DESCRIPTION.md"
+author: "@black-ghost-off"
+icon: screenshot.png
+screenshots:
+  - screenshot.png
+sources:
+  type: git
+  location:
+    origin: https://github.com/black-ghost-off/lilka_wallpapers/tree/main/ha
+entryfile:
+  type: lua
+  location:
+    origin: https://raw.githubusercontent.com/black-ghost-off/lilka_wallpapers/refs/heads/main/ha/wallpaper.lua
