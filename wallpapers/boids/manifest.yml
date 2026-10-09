@@ -1,0 +1,20 @@
+name:
+  uk: Зграя птахів (LUA)
+  en: Boids (LUA)
+keira_version: 1.0.0
+short_description:
+  uk: "Зграя птахів над соняшниковим полем на заході сонця"
+  en: "A flock of birds over a sunflower field at sunset"
+description: "@DESCRIPTION.md"
+author: "@black-ghost-off"
+icon: screenshot.png
+screenshots:
+  - screenshot.png
+sources:
+  type: git
+  location:
+    origin: https://github.com/black-ghost-off/lilka_wallpapers/tree/main/boids
+entryfile:
+  type: lua
+  location:
+    origin: https://raw.githubusercontent.com/black-ghost-off/lilka_wallpapers/refs/heads/main/boids/wallpaper.lua

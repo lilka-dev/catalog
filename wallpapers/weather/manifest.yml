@@ -1,0 +1,20 @@
+name:
+  uk: Погода (LUA)
+  en: Weather (LUA)
+keira_version: 1.0.0
+short_description:
+  uk: "Поточна погода з Open-Meteo у вигляді анімованої сцени з прогнозом на 4 дні (Wi-Fi)"
+  en: "Current weather from Open-Meteo as an animated scene with a 4-day forecast (Wi-Fi)"
+description: "@DESCRIPTION.md"
+author: "@black-ghost-off"
+icon: screenshot.png
+screenshots:
+  - screenshot.png
+sources:
+  type: git
+  location:
+    origin: https://github.com/black-ghost-off/lilka_wallpapers/tree/main/weather
+entryfile:
+  type: lua
+  location:
+    origin: https://raw.githubusercontent.com/black-ghost-off/lilka_wallpapers/refs/heads/main/weather/wallpaper.lua

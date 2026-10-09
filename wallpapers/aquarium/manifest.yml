@@ -1,0 +1,20 @@
+name:
+  uk: Тропічний акваріум (LUA)
+  en: Tropical Aquarium (LUA)
+keira_version: 1.0.0
+short_description:
+  uk: "Тропічні рибки плавають на різній глибині серед водоростей, коралів та анемонів"
+  en: "Tropical fish swim at different depths among seaweed, coral and anemones"
+description: "@DESCRIPTION.md"
+author: "@black-ghost-off"
+icon: screenshot.png
+screenshots:
+  - screenshot.png
+sources:
+  type: git
+  location:
+    origin: https://github.com/black-ghost-off/lilka_wallpapers/tree/main/aquarium
+entryfile:
+  type: lua
+  location:
+    origin: https://raw.githubusercontent.com/black-ghost-off/lilka_wallpapers/refs/heads/main/aquarium/wallpaper.lua

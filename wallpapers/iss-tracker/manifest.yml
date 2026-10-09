@@ -13,17 +13,17 @@ screenshots:
 sources:
   type: git
   location:
-    origin: https://github.com/black-ghost-off/lilka_iss_tracker
+    origin: https://github.com/black-ghost-off/lilka_wallpapers
 entryfile:
   type: lua
   location:
-    origin: https://raw.githubusercontent.com/black-ghost-off/lilka_iss_tracker/refs/heads/main/iss_tracker/main.lua
+    origin: https://raw.githubusercontent.com/black-ghost-off/lilka_wallpapers/refs/heads/main/iss_tracker/main.lua
 files:
   - type: image
     location:
-      origin: https://raw.githubusercontent.com/black-ghost-off/lilka_iss_tracker/refs/heads/main/iss_tracker/map.bmp
+      origin: https://raw.githubusercontent.com/black-ghost-off/lilka_wallpapers/refs/heads/main/iss_tracker/map.bmp
     description: World map
   - type: text
     location:
-      origin: https://raw.githubusercontent.com/black-ghost-off/lilka_iss_tracker/refs/heads/main/iss_tracker/tle.txt
+      origin: https://raw.githubusercontent.com/black-ghost-off/lilka_wallpapers/refs/heads/main/iss_tracker/tle.txt
     description: Cached ISS TLE (orbital elements)

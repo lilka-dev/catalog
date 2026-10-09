@@ -1,0 +1,20 @@
+name:
+  uk: Внески GitHub (LUA)
+  en: GitHub Contributions (LUA)
+keira_version: 1.0.0
+short_description:
+  uk: "Сітка ваших внесків на GitHub за останні 24 тижні з серією та найкращим днем (Wi-Fi)"
+  en: "Your GitHub contribution grid for the last 24 weeks, with streak and best day (Wi-Fi)"
+description: "@DESCRIPTION.md"
+author: "@black-ghost-off"
+icon: screenshot.png
+screenshots:
+  - screenshot.png
+sources:
+  type: git
+  location:
+    origin: https://github.com/black-ghost-off/lilka_wallpapers/tree/main/github
+entryfile:
+  type: lua
+  location:
+    origin: https://raw.githubusercontent.com/black-ghost-off/lilka_wallpapers/refs/heads/main/github/wallpaper.lua

@@ -1,0 +1,20 @@
+name:
+  uk: Багаття (LUA)
+  en: Campfire (LUA)
+keira_version: 1.0.0
+short_description:
+  uk: "Багаття на класичному ефекті вогню з Doom, з іскрами та полінами"
+  en: "A campfire made with the classic Doom fire effect, with sparks and logs"
+description: "@DESCRIPTION.md"
+author: "@black-ghost-off"
+icon: screenshot.png
+screenshots:
+  - screenshot.png
+sources:
+  type: git
+  location:
+    origin: https://github.com/black-ghost-off/lilka_wallpapers/tree/main/fire
+entryfile:
+  type: lua
+  location:
+    origin: https://raw.githubusercontent.com/black-ghost-off/lilka_wallpapers/refs/heads/main/fire/wallpaper.lua
