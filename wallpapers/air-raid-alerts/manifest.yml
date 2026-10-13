@@ -1,7 +1,7 @@
 name:
   uk: Повітряні тривоги (LUA)
   en: Air Raid Alerts (LUA)
-keira_version: 1.0.0
+keira_version: 1.0.1
 short_description:
   uk: "Карта України з активними повітряними тривогами по областях, оновлюється кожні 30 секунд (Wi-Fi)"
   en: "A map of Ukraine with active air raid alerts by oblast, refreshed every 30 seconds (Wi-Fi)"
