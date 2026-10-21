@@ -129,19 +129,23 @@ class LilkaRepository {
     return item ? item[field] : undefined;
   }
 
-  // The catalog lives in lilka-catalog-api under /catalog, in the same
-  // layout the static site used to have. Without an API address the site
-  // reads the Pages mirror next to it instead.
+  // The public catalog is read from the Pages mirror next to the site, the
+  // same copy of the API's /catalog tree that Keira downloads. Every request
+  // to the API counts against the Worker's daily limit even when it is
+  // answered from a cache, and one list page is 25 of them (index, 12
+  // manifests, 12 icons); the mirror is served by GitHub's CDN for free.
+  // Sign-in, publishing and moderation still talk to the API (community.js).
+  //
+  // The price is freshness: an approval reaches the mirror on its next
+  // rebuild (right away with the API's dispatch token, otherwise hourly).
+  // During development, `lilka-api-url` in localStorage reads a local API
+  // directly, since there is no mirror next to `site/`.
   readDataBase() {
     let api = '';
     try {
       api = localStorage.getItem('lilka-api-url') || '';
     } catch (e) {
       api = '';
-    }
-    if (!api) {
-      const meta = document.querySelector('meta[name="lilka-api"]');
-      api = meta ? meta.content.trim() : '';
     }
     return api ? `${api.replace(/\/$/, '')}/catalog/` : '';
   }

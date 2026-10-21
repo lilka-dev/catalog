@@ -27,6 +27,8 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.mirror.outputs.changed }}
     env:
       API_URL: ${{ vars.API_URL || vars.COMMUNITY_API_URL || 'https://lilka-catalog-api.black-ghost-ukraine.workers.dev' }}
     steps:
@@ -41,17 +43,23 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      # One API request per run. Hourly and API-triggered runs stop here when
+      # the catalog is unchanged; a push always deploys, the site code may have
       - name: Mirror the catalog from the API
-        run: python3 scripts/mirror_api.py --out build
+        id: mirror
+        run: python3 scripts/mirror_api.py --out build ${{ (github.event_name == 'schedule' || github.event_name == 'repository_dispatch') && '--skip-unchanged' || '' }}
 
       - name: Copy static site files
+        if: steps.mirror.outputs.changed != 'false'
         run: |
-          cp site/index.html site/styles.css site/script.js site/community.js build/
+          cp site/index.html site/404.html site/styles.css site/script.js site/community.js build/
 
       - name: Setup Pages
+        if: steps.mirror.outputs.changed != 'false'
         uses: actions/configure-pages@v4
 
       - name: Upload artifact
+        if: steps.mirror.outputs.changed != 'false'
         uses: actions/upload-pages-artifact@v3
         with:
           path: './build'
@@ -62,6 +70,7 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     needs: build
+    if: needs.build.outputs.changed != 'false'
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
