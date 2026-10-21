@@ -7,7 +7,7 @@ on:
   repository_dispatch:
     types: [scan-version]
   schedule:
-    - cron: '*/30 * * * *'
+    - cron: '0 */6 * * *'
   workflow_dispatch:
 
 concurrency:
