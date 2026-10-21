@@ -17,32 +17,34 @@
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <header>
-        <div class="container">
-            <h1>🎮 Lilka Apps & Mods</h1>
-            <p class="subtitle" data-i18n="subtitle">Games, tools, and modifications for the Lilka DIY console</p>
-            <div class="account" id="account" hidden></div>
-            <div class="lang-switcher" id="langSwitcher" role="group" aria-label="Language">
-                <button class="lang-btn" data-lang="uk" title="Українська">УКР</button>
-                <button class="lang-btn" data-lang="en" title="English">ENG</button>
+    <header class="site-header">
+        <div class="container header-bar">
+            <a class="brand" href="./">
+                <span class="brand-mark" aria-hidden="true">🎮</span>
+                <span class="brand-text">
+                    <span class="brand-name">Lilka <span class="brand-name-extra">Apps &amp; Mods</span></span>
+                    <span class="brand-tagline" data-i18n="subtitle">Games, tools, and modifications for the Lilka DIY console</span>
+                </span>
+            </a>
+            <div class="header-actions">
+                <!-- My apps and Moderation live in the account menu (community.js) -->
+                <button class="tab-button community-tab publish-btn" data-type="share" data-i18n="tab-share" hidden>Publish</button>
+                <div class="account" id="account" hidden></div>
+                <div class="lang-switcher" id="langSwitcher" role="group" aria-label="Language">
+                    <button class="lang-btn" data-lang="uk" title="Українська">УКР</button>
+                    <button class="lang-btn" data-lang="en" title="English">ENG</button>
+                </div>
             </div>
         </div>
-        <div class="header-border"></div>
+        <nav class="tabs">
+            <div class="container tabs-row">
+                <button class="tab-button active" data-type="apps" data-i18n="tab-apps">Apps</button>
+                <button class="tab-button" data-type="wallpapers" data-i18n="tab-wallpapers">Wallpapers</button>
+                <button class="tab-button" data-type="mods" data-i18n="tab-mods">Mods</button>
+                <button class="tab-button" data-type="authors" data-i18n="tab-authors">Authors</button>
+            </div>
+        </nav>
     </header>
-
-    <nav class="tabs">
-        <div class="container">
-            <button class="tab-button active" data-type="apps" data-i18n="tab-apps">Apps</button>
-            <button class="tab-button" data-type="wallpapers" data-i18n="tab-wallpapers">Wallpapers</button>
-            <button class="tab-button" data-type="mods" data-i18n="tab-mods">Mods</button>
-            <button class="tab-button" data-type="authors" data-i18n="tab-authors">Authors</button>
-            <button class="tab-button" data-type="examples" data-i18n="tab-examples">Examples</button>
-            <button class="tab-button" data-type="docs" data-i18n="tab-docs">Documentation</button>
-            <button class="tab-button community-tab" data-type="share" data-i18n="tab-share" hidden>Publish</button>
-            <button class="tab-button community-tab" data-type="my" data-i18n="tab-my" hidden>My apps</button>
-            <button class="tab-button community-tab" data-type="mod" data-i18n="tab-mod" hidden>Moderation</button>
-        </div>
-    </nav>
 
     <main class="container">
         <div id="loading" class="loading" data-i18n="loading">Loading...</div>
@@ -65,10 +67,6 @@
         </div>
 
         <div id="authors" class="authors-content" style="display: none;"></div>
-
-        <div id="examples" class="examples-content" style="display: none;"></div>
-
-        <div id="docs" class="docs-content" style="display: none;"></div>
 
         <div id="community" class="community-content" style="display: none;"></div>
     </main>

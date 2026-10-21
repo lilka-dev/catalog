@@ -47,7 +47,6 @@ jobs:
       - name: Copy static site files
         run: |
           cp site/index.html site/styles.css site/script.js site/community.js build/
-          cp README.md README.uk.md build/
 
       - name: Setup Pages
         uses: actions/configure-pages@v4

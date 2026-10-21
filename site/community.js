@@ -11,6 +11,7 @@ const COMMUNITY_STRINGS = {
     'tab-mod': 'Модерація',
     'sign-in': 'Увійти через GitHub',
     'sign-out': 'Вийти',
+    'sign-in-short': 'Увійти',
     'sign-in-required': 'Щоб публікувати додатки, увійдіть через GitHub.',
     'sign-in-why': 'Потрібен лише публічний профіль: імʼя та аватар. Доступу до ваших репозиторіїв каталог не отримує.',
     'banned': 'Ваш обліковий запис заблоковано модератором.',
@@ -112,6 +113,7 @@ const COMMUNITY_STRINGS = {
     'tab-mod': 'Moderation',
     'sign-in': 'Sign in with GitHub',
     'sign-out': 'Sign out',
+    'sign-in-short': 'Sign in',
     'sign-in-required': 'Sign in with GitHub to publish apps.',
     'sign-in-why': 'Only your public profile is used: name and avatar. The catalog gets no access to your repositories.',
     'banned': 'Your account was banned by a moderator.',
@@ -232,6 +234,15 @@ function entryTypeOf(name) {
   if (/\.(zip|tar|tar\.gz|tgz)$/.test(lower)) return 'archive';
   return null;
 }
+
+// GitHub mark, inline so the sign-in button needs no extra request
+const GITHUB_ICON = '<svg class="github-icon" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">' +
+    '<path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 ' +
+    '0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 ' +
+    '1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15' +
+    '-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 ' +
+    '2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 ' +
+    '1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>';
 
 class CommunityUI {
   constructor(app) {
@@ -363,27 +374,73 @@ class CommunityUI {
   renderAccount() {
     const box = document.getElementById('account');
     document.querySelectorAll('.tab-button.community-tab').forEach(btn => {
-      const type = btn.dataset.type;
-      const visible = this.enabled &&
-          (type !== 'mod' || (this.user && this.user.role === 'moderator'));
-      btn.hidden = !visible;
+      btn.hidden = !this.enabled;
     });
     if (!box) return;
     box.hidden = !this.enabled;
     if (!this.enabled) return;
 
-    if (this.user) {
+    if (!this.user) {
       box.innerHTML = `
-        <span class="account-user">
-          ${this.user.avatar_url ? `<img src="${this.esc(this.avatarUrl(this.user.avatar_url))}" alt="" class="account-avatar">` : ''}
-          <span>${this.esc(this.user.login)}</span>
-        </span>
-        <button class="lang-btn account-btn" id="signOutBtn">${this.esc(this.t('sign-out'))}</button>`;
-      box.querySelector('#signOutBtn').addEventListener('click', () => this.signOut());
-    } else {
-      box.innerHTML = `<button class="lang-btn account-btn" id="signInBtn">${
-          this.esc(this.t('sign-in'))}</button>`;
+        <button class="account-signin" id="signInBtn">
+          ${GITHUB_ICON}<span>${this.esc(this.t('sign-in-short'))}</span>
+        </button>`;
       box.querySelector('#signInBtn').addEventListener('click', () => this.signIn());
+      return;
+    }
+
+    const items = [['my', this.t('tab-my')]];
+    if (this.user.role === 'moderator') items.push(['mod', this.t('tab-mod')]);
+    box.innerHTML = `
+      <button class="account-trigger" aria-haspopup="menu" aria-expanded="false">
+        ${this.user.avatar_url ? `<img src="${this.esc(this.avatarUrl(this.user.avatar_url))}" alt="" class="account-avatar">` : ''}
+        <span class="account-login">${this.esc(this.user.login)}</span>
+        <span class="account-caret" aria-hidden="true">▾</span>
+      </button>
+      <div class="account-menu" role="menu" hidden>
+        ${items.map(([type, label]) =>
+            `<button role="menuitem" data-view="${type}">${this.esc(label)}</button>`).join('')}
+        <hr>
+        <button role="menuitem" class="account-signout">${this.esc(this.t('sign-out'))}</button>
+      </div>`;
+
+    const trigger = box.querySelector('.account-trigger');
+    const menu = box.querySelector('.account-menu');
+    const setOpen = open => {
+      menu.hidden = !open;
+      trigger.setAttribute('aria-expanded', String(open));
+    };
+    trigger.addEventListener('click', () => setOpen(menu.hidden));
+    menu.querySelectorAll('[data-view]').forEach(btn => btn.addEventListener('click', () => {
+      setOpen(false);
+      if (window.umami) window.umami.track('tab-navigation', {tab: btn.dataset.view});
+      this.show(btn.dataset.view);
+    }));
+    menu.querySelector('.account-signout').addEventListener('click', () => {
+      setOpen(false);
+      this.signOut();
+    });
+
+    // The menu is rebuilt on every render, so close it via whatever is current
+    if (!this.menuListeners) {
+      this.menuListeners = true;
+      document.addEventListener('click', e => {
+        const current = document.querySelector('#account .account-menu');
+        if (current && !current.hidden && !e.target.closest('#account')) {
+          current.hidden = true;
+          document.querySelector('#account .account-trigger')
+              .setAttribute('aria-expanded', 'false');
+        }
+      });
+      document.addEventListener('keydown', e => {
+        const current = document.querySelector('#account .account-menu');
+        if (e.key === 'Escape' && current && !current.hidden) {
+          current.hidden = true;
+          const btn = document.querySelector('#account .account-trigger');
+          btn.setAttribute('aria-expanded', 'false');
+          btn.focus();
+        }
+      });
     }
   }
 
