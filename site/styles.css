@@ -1799,3 +1799,83 @@ footer {
 .status-pending_scan { color: var(--primary-color); }
 .status-rejected,
 .status-infected { color: var(--error); }
+
+/* Sorting and ratings (script.js listing, community.js mountRating) */
+.list-toolbar {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 0.6rem;
+    margin-top: 1.5rem;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+}
+
+.list-toolbar select {
+    background-color: var(--surface);
+    color: var(--text-primary);
+    border: 1px solid var(--border-solid);
+    border-radius: var(--radius-sm);
+    padding: 0.45rem 0.75rem;
+    font: inherit;
+    cursor: pointer;
+}
+
+.list-toolbar select:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+}
+
+.item-card .card-meta {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+}
+
+.item-card .card-rating {
+    color: var(--warning);
+    font-weight: 600;
+}
+
+.item-card .card-rating-count {
+    color: var(--text-muted);
+    font-weight: 400;
+}
+
+.rating-section .rating-summary {
+    color: var(--text-secondary);
+    margin-bottom: 0.5rem;
+}
+
+.rating-action {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.rating-star {
+    background: none;
+    border: none;
+    color: var(--border-solid);
+    font-size: 1.5rem;
+    line-height: 1;
+    padding: 0 0.1rem;
+    cursor: pointer;
+    transition: color var(--transition), transform var(--transition);
+}
+
+.rating-star.on,
+.rating-star:focus-visible {
+    color: var(--warning);
+}
+
+.rating-star:hover {
+    transform: scale(1.15);
+}
+
+.rating-star:disabled {
+    cursor: wait;
+}

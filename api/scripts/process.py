@@ -310,8 +310,11 @@ def main():
             process(session, api, version_id, f"[{number}/{len(ids)}]")
         except Exception as e:
             failed += 1
-            # Exception texts can hold URLs with file names of a private draft
-            log(f"[{number}/{len(ids)}] version id {version_id}: failed: {type(e).__name__}")
+            # Exception texts can hold URLs with file names of a private draft;
+            # the status code says enough to debug and names nothing
+            status = getattr(getattr(e, "response", None), "status_code", None)
+            log(f"[{number}/{len(ids)}] version id {version_id}: failed: {type(e).__name__}"
+                + (f" (HTTP {status})" if status else ""))
     if failed:
         sys.exit(f"{failed} item(s) failed")
 

@@ -112,6 +112,13 @@ call 200 "catalog package download" "${mirror[@]}" "$API/catalog/apps/smoke-hell
 call 200 "catalog authors.json" "${mirror[@]}" "$API/catalog/authors.json"
 jq -e '."@smoke-dev"[0].path == "smoke-hello"' "$work/body" >/dev/null || { echo "FAIL authors"; exit 1; }
 call 404 "catalog unknown kind" "${mirror[@]}" "$API/catalog/games/index_0.json"
+call 401 "listing.json needs the mirror secret" "$API/catalog/apps/listing.json"
+call 200 "listing.json for the site" "${mirror[@]}" "$API/catalog/apps/listing.json"
+jq -e '.items[] | select(.path == "smoke-hello") | (.added != null) and (.updated != null) and .rating.average == 4 and .rating.count == 1 and .author == "@smoke-dev"' \
+    "$work/body" >/dev/null && li=ok || li="$(jq -c '.items[] | select(.path == "smoke-hello")' "$work/body")"
+check "listing has dates, rating and author" ok "$li"
+pub=$(npx wrangler d1 execute lilka-catalog --local --json --command "SELECT published_at FROM apps WHERE slug = 'smoke-hello'" 2>/dev/null | jq -r '.[0].results[0].published_at')
+check "published_at set on first approval" ok "$([ -n "$pub" ] && [ "$pub" != null ] && echo ok || echo missing)"
 
 # wrangler dev's local explorer lists the bucket; R2 keys are <app id>-<slug>/v/<version>/<file>
 r2_keys=$(curl -sS "$API/cdn-cgi/local/explorer/api/r2/buckets/lilka-catalog-files/objects?limit=1000" | jq -r '.result[].key')
