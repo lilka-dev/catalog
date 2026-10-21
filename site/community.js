@@ -15,12 +15,18 @@ const COMMUNITY_STRINGS = {
     'sign-in-required': 'Щоб публікувати додатки, увійдіть через GitHub.',
     'sign-in-why': 'Потрібен лише публічний профіль: імʼя та аватар. Доступу до ваших репозиторіїв каталог не отримує.',
     'banned': 'Ваш обліковий запис заблоковано модератором.',
-    'share-title': 'Опублікувати додаток',
+    'share-title': 'Опублікувати додаток, шпалери чи мод',
     'share-intro': 'Після завантаження файли перевіряє антивірус, а потім модератор. Додаток зʼявиться в каталозі й на Лілці після схвалення.',
     'target': 'Що публікуємо',
-    'target-new': 'Новий додаток',
-    'target-existing': 'Нова версія: {name}',
-    'section-app': 'Про додаток',
+    'target-group-new': 'Опублікувати нове',
+    'target-group-version': 'Нова версія для',
+    'target-new-app': 'Новий додаток або гра',
+    'target-new-wallpaper': 'Нові шпалери',
+    'target-new-mod': 'Новий мод (корпус, деталь для друку)',
+    'target-existing': '{name} — {kind}',
+    'section-app-app': 'Про додаток',
+    'section-app-wallpaper': 'Про шпалери',
+    'section-app-mod': 'Про мод',
     'section-version': 'Версія та файли',
     'kind': 'Тип',
     'kind-app': 'Додаток / гра',
@@ -117,12 +123,18 @@ const COMMUNITY_STRINGS = {
     'sign-in-required': 'Sign in with GitHub to publish apps.',
     'sign-in-why': 'Only your public profile is used: name and avatar. The catalog gets no access to your repositories.',
     'banned': 'Your account was banned by a moderator.',
-    'share-title': 'Publish an app',
+    'share-title': 'Publish an app, wallpaper or mod',
     'share-intro': 'Uploaded files are scanned by an antivirus and then reviewed by a moderator. The app appears in the catalog and on Lilka once approved.',
     'target': 'What to publish',
-    'target-new': 'New app',
-    'target-existing': 'New version: {name}',
-    'section-app': 'About the app',
+    'target-group-new': 'Publish something new',
+    'target-group-version': 'New version of',
+    'target-new-app': 'New app or game',
+    'target-new-wallpaper': 'New wallpaper',
+    'target-new-mod': 'New mod (case, printable part)',
+    'target-existing': '{name} — {kind}',
+    'section-app-app': 'About the app',
+    'section-app-wallpaper': 'About the wallpaper',
+    'section-app-mod': 'About the mod',
     'section-version': 'Version and files',
     'kind': 'Type',
     'kind-app': 'App / game',
@@ -607,22 +619,19 @@ class CommunityUI {
         <form id="shareForm" class="community-form" novalidate>
           ${field('target', 'target', `
             <select id="target" name="target">
-              <option value="">${this.esc(this.t('target-new'))}</option>
-              ${apps.map(a => `<option value="${this.esc(a.slug)}" ${
-                  a.slug === preselect ? 'selected' : ''}>${
-                  this.esc(this.t('target-existing', {name: this.appName(a)}))}</option>`).join('')}
+              <optgroup label="${this.esc(this.t('target-group-new'))}">
+                ${['app', 'wallpaper', 'mod'].map(kind => `<option value="new:${kind}">${
+                    this.esc(this.t(`target-new-${kind}`))}</option>`).join('')}
+              </optgroup>
+              ${apps.length ? `<optgroup label="${this.esc(this.t('target-group-version'))}">
+                ${apps.map(a => this.targetOption(a.slug, this.appName(a), a.kind, a.slug === preselect)).join('')}
+              </optgroup>` : ''}
             </select>`)}
 
           <fieldset id="appFields">
-            <legend>${this.esc(this.t('section-app'))}</legend>
+            <legend id="appLegend"></legend>
             <div class="form-row">
-              ${field('kind', 'kind', `
-                <select id="kind" name="kind">
-                  <option value="app">${this.esc(this.t('kind-app'))}</option>
-                  <option value="wallpaper">${this.esc(this.t('kind-wallpaper'))}</option>
-                  <option value="mod">${this.esc(this.t('kind-mod'))}</option>
-                </select>`)}
-              ${field('slug', 'slug', '<input id="slug" name="slug" maxlength="48" autocomplete="off" placeholder="my-game">', 'slug-hint')}
+              ${field('slug', 'slug', '<input id="slug" name="slug" maxlength="48" autocomplete="off">', 'slug-hint')}
             </div>
             <div class="form-row">
               ${field('name_uk', 'name-uk', '<input id="name_uk" name="name_uk" maxlength="64">')}
@@ -680,18 +689,23 @@ class CommunityUI {
 
     const form = box.querySelector('#shareForm');
     const target = form.querySelector('#target');
-    const kindSelect = form.querySelector('#kind');
-    // A mod is a printable part: no entry file and no Keira version
+    // The one dropdown says both what kind of thing it is and whether it is
+    // new: `new:<kind>` creates an item, anything else is the slug of one of
+    // the user's items that gets a new version. A mod is a printable part:
+    // no entry file and no Keira version
     const syncTarget = () => {
-      form.querySelector('#appFields').hidden = !!target.value;
+      const isNew = target.value.startsWith('new:');
       const existing = apps.find(a => a.slug === target.value);
-      const isMod = (existing ? existing.kind : kindSelect.value) === 'mod';
-      form.dataset.kind = isMod ? 'mod' : 'program';
+      const kind = isNew ? target.value.slice(4) : (existing ? existing.kind : 'app');
+      form.dataset.kind = kind;
+      form.querySelector('#appFields').hidden = !isNew;
+      form.querySelector('#appLegend').textContent = this.t(`section-app-${kind}`);
+      form.querySelector('#slug').placeholder = {app: 'my-game', wallpaper: 'my-wallpaper', mod: 'my-case'}[kind];
+      const isMod = kind === 'mod';
       form.querySelectorAll('.program-only').forEach(el => el.hidden = isMod);
       form.querySelector('#filesLabel').textContent = this.t(isMod ? 'model-files' : 'extra-files');
     };
     target.addEventListener('change', syncTarget);
-    kindSelect.addEventListener('change', syncTarget);
     syncTarget();
 
     // Suggest an identifier from the name until the user types their own
@@ -718,6 +732,11 @@ class CommunityUI {
       e.preventDefault();
       this.submitShare(form);
     });
+  }
+
+  targetOption(slug, name, kind, selected) {
+    return `<option value="${this.esc(slug)}"${selected ? ' selected' : ''}>${
+        this.esc(this.t('target-existing', {name, kind: this.t(`kind-${kind}`)}))}</option>`;
   }
 
   validateFiles(form) {
@@ -770,19 +789,20 @@ class CommunityUI {
     const fileError = this.validateFiles(form);
     if (fileError) return showError(fileError);
 
+    const isNew = value('target').startsWith('new:');
     let slug = value('target');
-    if (!slug) {
+    if (isNew) {
       slug = value('slug');
       if (!SLUG_RE.test(slug)) return showError(`${this.t('slug')}: ${this.t('slug-hint')}`);
     }
 
     submit.disabled = true;
     try {
-      if (!value('target')) {
+      if (isNew) {
         progress.textContent = this.t('creating');
         await this.request('POST', '/apps', {
           slug,
-          kind: value('kind'),
+          kind: form.dataset.kind,
           name: {uk: value('name_uk'), en: value('name_en')},
           short_description: {uk: value('short_uk'), en: value('short_en')},
           description: {uk: value('description_uk'), en: value('description_en')},
@@ -792,8 +812,8 @@ class CommunityUI {
         // If the upload below fails, a retry must add a version to this app
         // instead of trying to create it again
         const target = form.querySelector('#target');
-        target.insertAdjacentHTML('beforeend', `<option value="${this.esc(slug)}">${
-            this.esc(this.t('target-existing', {name: value('name_uk') || value('name_en') || slug}))}</option>`);
+        target.insertAdjacentHTML('beforeend', this.targetOption(
+            slug, value('name_uk') || value('name_en') || slug, form.dataset.kind, true));
         target.value = slug;
         form.querySelector('#appFields').hidden = true;
       }
