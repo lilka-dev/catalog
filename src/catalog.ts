@@ -1,7 +1,7 @@
 import { Hono, type Context } from 'hono';
 import type { AppEnv, Env } from './env';
 import { displayAuthor, kindDir, type AppRow } from './apps';
-import { contentTypeOf, fail, parseJsonArray } from './util';
+import { contentTypeOf, fail, parseJsonArray, sha256Hex } from './util';
 import { objectKey } from './versions';
 
 /**
@@ -191,8 +191,12 @@ function dirKind(dir: string): AppRow['kind'] {
     return kind;
 }
 
-catalog.get('/authors.json', async (c) => {
-    const rows = await published(c.env);
+/** Exact text of every document, shared by the single routes and the export. */
+function text(data: unknown): string {
+    return JSON.stringify(data, null, 2);
+}
+
+function authorsDoc(rows: CatalogRow[]): Record<string, unknown[]> {
     const authors = new Map<string, Record<string, unknown>[]>();
     for (const row of rows) {
         const loc = localization(row);
@@ -216,18 +220,65 @@ catalog.get('/authors.json', async (c) => {
     for (const author of [...authors.keys()].sort(byLower)) {
         sorted[author] = authors.get(author)!.sort((a, b) => byLower(String(a.name), String(b.name)));
     }
-    return json(c, sorted);
-});
+    return sorted;
+}
+
+/** index_<n>.json documents of one kind; build.py wrote none for an empty kind, this keeps an empty page 0. */
+function indexDocs(rows: CatalogRow[]) {
+    const ids = rows.map((row) => row.slug);
+    const totalPages = Math.ceil(ids.length / PER_PAGE);
+    return Array.from({ length: Math.max(totalPages, 1) }, (_, page) => ({
+        page,
+        total_pages: totalPages,
+        manifests: ids.slice(page * PER_PAGE, (page + 1) * PER_PAGE),
+    }));
+}
+
+catalog.get('/authors.json', async (c) => json(c, authorsDoc(await published(c.env))));
 
 catalog.get('/:dir/:page{index_[0-9]+\\.json}', async (c) => {
     const kind = dirKind(c.req.param('dir'));
     const page = Number(/^index_(\d+)\.json$/.exec(c.req.param('page'))![1]);
-    const ids = (await published(c.env, kind)).map((row) => row.slug);
-    const totalPages = Math.ceil(ids.length / PER_PAGE);
-    // build.py wrote no index at all for an empty kind; an empty page 0 keeps
-    // the website from showing an error for it
-    if (page >= Math.max(totalPages, 1)) fail(404, 'page not found');
-    return json(c, { page, total_pages: totalPages, manifests: ids.slice(page * PER_PAGE, (page + 1) * PER_PAGE) });
+    const docs = indexDocs(await published(c.env, kind));
+    if (page >= docs.length) fail(404, 'page not found');
+    return json(c, docs[page]);
+});
+
+/**
+ * The whole tree in one response, for scripts/mirror_api.py.
+ *
+ * Every request to the Worker counts against its daily limit, and copying the
+ * tree file by file was over 400 of them per mirror run. This returns every
+ * JSON document as the exact text the single routes serve, plus which version
+ * each item is at, so the mirror only fetches files of items that changed and
+ * skips a run entirely when `stamp` is the one it published last time.
+ */
+catalog.get('/export.json', async (c) => {
+    const rows = await published(c.env);
+    const documents: Record<string, string> = { 'authors.json': text(authorsDoc(rows)) };
+    const items: Record<string, { version: number; files: string[] }> = {};
+    for (const dir of Object.keys(DIRS)) {
+        const ofKind = rows.filter((row) => kindDir(row.kind) === dir);
+        indexDocs(ofKind).forEach((doc, page) => (documents[`${dir}/index_${page}.json`] = text(doc)));
+        for (const row of ofKind) {
+            const base = `${dir}/${row.slug}`;
+            documents[`${base}/index.json`] = text(fullDoc(row));
+            if (row.kind !== 'mod') documents[`${base}/index_short.json`] = text(shortDoc(row));
+            const names = new Set(
+                [row.entry_file, row.icon, row.icon_min, ...parseJsonArray<string>(row.files), ...parseJsonArray<string>(row.screenshots)].filter(
+                    (name): name is string => !!name,
+                ),
+            );
+            items[base] = {
+                version: row.v_id,
+                files: [...[...names].map((name) => `static/${name}`), ...(row.package ? [row.package] : [])],
+            };
+        }
+    }
+    const stamp = await sha256Hex(text({ documents, items }));
+    return new Response(text({ stamp, documents, items }), {
+        headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
+    });
 });
 
 async function one(c: Context<AppEnv>): Promise<CatalogRow> {

@@ -550,7 +550,28 @@ users.get('/:login/apps', async (c) => {
         c.env,
         results.map((a) => a.id),
     );
-    return c.json({ items: results.map((a) => serializeApp(c.env, a, latest.get(a.id) ?? null)) });
+
+    // ?versions: every version with its review state, for "My apps" and the
+    // publish form. Without it the page fetched each app on its own, one
+    // Worker request per app every time it opened
+    let versions: Map<number, VersionRow[]> | null = null;
+    if (own && c.req.query('versions') !== undefined) {
+        const { results: rows } = await c.env.DB.prepare(
+            `SELECT v.* FROM versions v JOIN apps a ON a.id = v.app_id WHERE a.owner_id = ? ORDER BY v.id DESC`,
+        )
+            .bind(owner.id)
+            .all<VersionRow>();
+        versions = new Map();
+        for (const v of rows) versions.set(v.app_id, [...(versions.get(v.app_id) ?? []), v]);
+    }
+    return c.json({
+        items: results.map((a) => ({
+            ...serializeApp(c.env, a, latest.get(a.id) ?? null),
+            ...(versions
+                ? { can_manage: true, versions: (versions.get(a.id) ?? []).map((v) => serializeVersion(c.env, a.slug, v, true)) }
+                : {}),
+        })),
+    });
 });
 
 export async function serveFile(c: Context<AppEnv>) {
