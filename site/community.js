@@ -24,6 +24,8 @@ const COMMUNITY_STRINGS = {
     'kind': 'Тип',
     'kind-app': 'Додаток / гра',
     'kind-wallpaper': 'Шпалери',
+    'kind-mod': 'Мод (корпус, деталь для друку)',
+    'model-files': 'Файли моделі (STL, 3MF, STEP…)',
     'slug': 'Ідентифікатор',
     'slug-hint': 'Латиниця, цифри та дефіс. Стане частиною адреси й не змінюється.',
     'name-uk': 'Назва (українською)',
@@ -40,6 +42,7 @@ const COMMUNITY_STRINGS = {
     'entry-lua': 'Lua-скрипт (.lua)',
     'entry-archive': 'Архів (.zip, .tar.gz)',
     'entry-binary': 'Прошивка (.bin)',
+    'entry-js': 'mJS-скрипт (.js)',
     'changelog': 'Що нового',
     'entry-file': 'Файл запуску',
     'extra-files': 'Додаткові файли (модулі, ресурси)',
@@ -119,6 +122,8 @@ const COMMUNITY_STRINGS = {
     'kind': 'Type',
     'kind-app': 'App / game',
     'kind-wallpaper': 'Wallpaper',
+    'kind-mod': 'Mod (case, printable part)',
+    'model-files': 'Model files (STL, 3MF, STEP…)',
     'slug': 'Identifier',
     'slug-hint': 'Latin letters, digits and dashes. Becomes part of the address and cannot change.',
     'name-uk': 'Name (Ukrainian)',
@@ -135,6 +140,7 @@ const COMMUNITY_STRINGS = {
     'entry-lua': 'Lua script (.lua)',
     'entry-archive': 'Archive (.zip, .tar.gz)',
     'entry-binary': 'Firmware (.bin)',
+    'entry-js': 'mJS script (.js)',
     'changelog': 'What\'s new',
     'entry-file': 'Entry file',
     'extra-files': 'Extra files (modules, resources)',
@@ -212,6 +218,7 @@ const TOKEN_KEY = 'lilka-token';
 function entryTypeOf(name) {
   const lower = name.toLowerCase();
   if (lower.endsWith('.lua')) return 'lua';
+  if (lower.endsWith('.js')) return 'js';
   if (lower.endsWith('.bin')) return 'binary';
   if (/\.(zip|tar|tar\.gz|tgz)$/.test(lower)) return 'archive';
   return null;
@@ -529,6 +536,7 @@ class CommunityUI {
                 <select id="kind" name="kind">
                   <option value="app">${this.esc(this.t('kind-app'))}</option>
                   <option value="wallpaper">${this.esc(this.t('kind-wallpaper'))}</option>
+                  <option value="mod">${this.esc(this.t('kind-mod'))}</option>
                 </select>`)}
               ${field('slug', 'slug', '<input id="slug" name="slug" maxlength="48" autocomplete="off" placeholder="my-game">', 'slug-hint')}
             </div>
@@ -554,18 +562,22 @@ class CommunityUI {
             <legend>${this.esc(this.t('section-version'))}</legend>
             <div class="form-row">
               ${field('version', 'version', '<input id="version" name="version" maxlength="32" value="1.0.0">')}
-              ${field('keira_version', 'keira-version', '<input id="keira_version" name="keira_version" maxlength="32" value="1.0.0">')}
-              ${field('entry_type', 'entry-type', `
+              <div class="program-only">${field('keira_version', 'keira-version', '<input id="keira_version" name="keira_version" maxlength="32" value="1.0.0">')}</div>
+              <div class="program-only">${field('entry_type', 'entry-type', `
                 <select id="entry_type" name="entry_type">
                   <option value="lua">${this.esc(this.t('entry-lua'))}</option>
                   <option value="archive">${this.esc(this.t('entry-archive'))}</option>
                   <option value="binary">${this.esc(this.t('entry-binary'))}</option>
-                </select>`)}
+                  <option value="js">${this.esc(this.t('entry-js'))}</option>
+                </select>`)}</div>
             </div>
             ${field('changelog', 'changelog', '<textarea id="changelog" name="changelog" rows="3"></textarea>')}
             <div class="form-row">
-              ${field('entry', 'entry-file', '<input id="entry" name="entry" type="file" accept=".lua,.zip,.tar,.gz,.tgz,.bin">')}
-              ${field('files', 'extra-files', '<input id="files" name="files" type="file" multiple>')}
+              <div class="program-only">${field('entry', 'entry-file', '<input id="entry" name="entry" type="file" accept=".lua,.js,.zip,.tar,.gz,.tgz,.bin">')}</div>
+              <label class="form-field" for="files">
+                <span class="form-label" id="filesLabel">${this.esc(this.t('extra-files'))}</span>
+                <input id="files" name="files" type="file" multiple>
+              </label>
             </div>
             <div class="form-row">
               ${field('icon', 'icon', '<input id="icon" name="icon" type="file" accept="image/png,image/jpeg">')}
@@ -584,10 +596,18 @@ class CommunityUI {
 
     const form = box.querySelector('#shareForm');
     const target = form.querySelector('#target');
+    const kindSelect = form.querySelector('#kind');
+    // A mod is a printable part: no entry file and no Keira version
     const syncTarget = () => {
       form.querySelector('#appFields').hidden = !!target.value;
+      const existing = apps.find(a => a.slug === target.value);
+      const isMod = (existing ? existing.kind : kindSelect.value) === 'mod';
+      form.dataset.kind = isMod ? 'mod' : 'program';
+      form.querySelectorAll('.program-only').forEach(el => el.hidden = isMod);
+      form.querySelector('#filesLabel').textContent = this.t(isMod ? 'model-files' : 'extra-files');
     };
     target.addEventListener('change', syncTarget);
+    kindSelect.addEventListener('change', syncTarget);
     syncTarget();
 
     // Suggest an identifier from the name until the user types their own
@@ -622,17 +642,24 @@ class CommunityUI {
     const icon = [...form.querySelector('#icon').files];
     const shots = [...form.querySelector('#screenshots').files];
     const entryType = form.querySelector('#entry_type').value;
+    const isMod = form.dataset.kind === 'mod';
 
-    if (!entry) return this.t('err-entry');
-    if (entryTypeOf(entry.name) !== entryType) return this.t('err-entry-type', {name: entry.name});
+    if (!isMod) {
+      if (!entry) return this.t('err-entry');
+      if (entryTypeOf(entry.name) !== entryType) return this.t('err-entry-type', {name: entry.name});
+    }
     if (shots.length > MAX_SCREENSHOTS) return this.t('err-shots');
 
-    const seen = new Set();
+    // The same picture may be both the icon and a screenshot
+    const seen = new Map();
     let total = 0;
-    for (const file of [entry, ...extra, ...icon, ...shots]) {
+    for (const file of [...(isMod || !entry ? [] : [entry]), ...extra, ...icon, ...shots]) {
       if (!FILENAME_RE.test(file.name)) return this.t('err-name', {name: file.name});
-      if (seen.has(file.name)) return this.t('err-dup', {name: file.name});
-      seen.add(file.name);
+      if (seen.has(file.name)) {
+        if (seen.get(file.name) !== file.size) return this.t('err-dup', {name: file.name});
+        continue;
+      }
+      seen.set(file.name, file.size);
       if (file.size > MAX_FILE_BYTES) return this.t('err-size', {name: file.name});
       total += file.size;
     }
@@ -688,10 +715,11 @@ class CommunityUI {
       }
 
       const data = new FormData();
-      for (const id of ['version', 'keira_version', 'entry_type', 'changelog']) {
-        data.append(id, value(id));
-      }
-      data.append('entry', form.querySelector('#entry').files[0]);
+      const isMod = form.dataset.kind === 'mod';
+      const ids = isMod ? ['version', 'changelog'] :
+                          ['version', 'keira_version', 'entry_type', 'changelog'];
+      for (const id of ids) data.append(id, value(id));
+      if (!isMod) data.append('entry', form.querySelector('#entry').files[0]);
       for (const id of ['files', 'icon', 'screenshots']) {
         for (const file of form.querySelector(`#${id}`).files) data.append(id, file);
       }
@@ -743,7 +771,7 @@ class CommunityUI {
   }
 
   renderMyApp(app) {
-    const catalogType = app.kind === 'wallpaper' ? 'wallpapers' : 'apps';
+    const [catalogType] = app.catalog_path.split('/');
     const rating = app.rating && app.rating.count ?
         `<span class="community-hint">${this.esc(this.t('rating', app.rating))}</span>` : '';
     return `
@@ -779,13 +807,17 @@ class CommunityUI {
     if (v.scan_detail && v.status === 'infected') {
       notes.push(`<pre class="community-note">${this.esc(v.scan_detail)}</pre>`);
     }
-    const files = [v.entry, ...v.files, ...(v.icon ? [v.icon] : []), ...v.screenshots];
+    const files = [v.entry, ...v.files, v.icon, ...v.screenshots]
+        .filter((f, i, all) => f && all.findIndex(o => o && o.name === f.name) === i);
+    const meta = v.entry_type ?
+        `${this.esc(v.entry_type)} · Keira ≥ ${this.esc(v.keira_version)} · ${this.esc(v.created_at)}` :
+        this.esc(v.created_at);
     return `
       <div class="community-version">
         <div class="community-version-head">
           <strong>${this.esc(v.version)}</strong>
           ${this.statusBadge(v.status)}
-          <span class="community-hint">${this.esc(v.entry_type)} · Keira ≥ ${this.esc(v.keira_version)} · ${this.esc(v.created_at)}</span>
+          <span class="community-hint">${meta}</span>
         </div>
         ${v.changelog ? `<div class="community-hint">${this.esc(v.changelog)}</div>` : ''}
         ${notes.join('')}

@@ -1,80 +1,53 @@
 name: Build and Deploy to GitHub Pages
 
+# The catalog lives in lilka-catalog-api. This repo is the website plus a
+# static mirror of the API's /catalog tree, kept on Pages because Keira's
+# lilcatalog reads https://catalog.lilka.dev/apps/... and shipped firmware
+# cannot change that address.
 on:
-  # Runs on pushes targeting the default branch
   push:
     branches: ["main"]
-
-  # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
-
-  # lilka-catalog-api asks for a rebuild after a community app is approved or hidden
+  # The API asks for a rebuild after an approval or an edit
   repository_dispatch:
     types: [api-sync]
+  # Safety net for dispatches that never arrived
+  schedule:
+    - cron: '17 * * * *'
 
-# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
 permissions:
   contents: read
   pages: write
   id-token: write
 
-# Allow only one concurrent deployment, skipping runs queued between the run in-progress and latest queued.
-# However, do NOT cancel in-progress runs as we want to allow these production deployments to complete.
 concurrency:
   group: "pages"
   cancel-in-progress: false
 
 jobs:
-  # Build job
   build:
     runs-on: ubuntu-latest
+    env:
+      API_URL: ${{ vars.API_URL || vars.COMMUNITY_API_URL || 'https://lilka-catalog-api.black-ghost-ukraine.workers.dev' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
+          python-version: '3.12'
 
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+        run: pip install -r requirements.txt
 
-      - name: Install and start ClamAV daemon
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clamav clamav-daemon
-          sudo systemctl stop clamav-freshclam || true
-          sudo freshclam
-          sudo systemctl start clamav-daemon
-          # Wait for the daemon to be ready (loads signatures into memory once)
-          for i in $(seq 1 30); do
-            clamdscan --ping 1 2>/dev/null && break
-            echo "Waiting for clamd to start... ($i/30)"
-            sleep 2
-          done
-          clamdscan --version
-
-      - name: Pull community apps
-        # Repository variable COMMUNITY_API_URL; without it the step does nothing
-        env:
-          COMMUNITY_API_URL: ${{ vars.COMMUNITY_API_URL }}
-        run: python3 scripts/sync_community.py
-
-      - name: Build JSON files from manifests
-        run: |
-          python3 build.py --build --antivirus
+      - name: Mirror the catalog from the API
+        run: python3 scripts/mirror_api.py --out build
 
       - name: Copy static site files
         run: |
-          cp site/index.html build/
-          cp site/styles.css build/
-          cp site/script.js build/
-          cp site/community.js build/
-          cp README.md build/
-          cp README.uk.md build/
+          cp site/index.html site/styles.css site/script.js site/community.js build/
+          cp README.md README.uk.md build/
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
@@ -82,10 +55,8 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          # Upload entire build directory
           path: './build'
 
-  # Deployment job
   deploy:
     environment:
       name: github-pages
