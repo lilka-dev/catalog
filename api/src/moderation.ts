@@ -89,7 +89,8 @@ moderation.post('/versions/:id/approve', async (c) => {
         // A hidden app stays hidden: approving a version is not a decision to republish it
         c.env.DB.prepare(
             `UPDATE apps SET status = CASE WHEN status = 'hidden' THEN 'hidden' ELSE 'published' END,
-                             latest_version_id = ?, updated_at = datetime('now')
+                             latest_version_id = ?, published_at = COALESCE(published_at, datetime('now')),
+                             updated_at = datetime('now')
               WHERE id = ?`,
         ).bind(version.id, version.app_id),
     ]);
@@ -403,7 +404,8 @@ scan.post('/versions/:id', async (c) => {
         statements.push(
             c.env.DB.prepare(
                 `UPDATE apps SET status = CASE WHEN status = 'hidden' THEN 'hidden' ELSE 'published' END,
-                                 latest_version_id = ?, updated_at = datetime('now')
+                                 latest_version_id = ?, published_at = COALESCE(published_at, datetime('now')),
+                                 updated_at = datetime('now')
                   WHERE id = ?`,
             ).bind(version.id, version.app_id),
         );

@@ -1,4 +1,9 @@
 // Static UI strings per language, applied to elements with [data-i18n]
+// Cards per page; listing.json holds every item, pages are cut here
+const PAGE_SIZE = 12;
+const SORTS = ['newest', 'updated', 'rating', 'name', 'author'];
+const DEFAULT_SORT = 'newest';
+
 const UI_STRINGS = {
   uk: {
     'subtitle': 'Ігри, інструменти та модифікації для DIY-консолі Лілка',
@@ -7,6 +12,14 @@ const UI_STRINGS = {
     'tab-mods': 'Моди',
     'tab-authors': 'Автори',
     'loading': 'Завантаження...',
+    'sort-label': 'Сортувати',
+    'sort-newest': 'Нові',
+    'sort-updated': 'Нещодавно оновлені',
+    'sort-rating': 'Найкраща оцінка',
+    'sort-name': 'Назва',
+    'sort-author': 'Автор',
+    'card-added': 'Додано {date}',
+    'card-updated': 'Оновлено {date}',
     'av-info-title': 'Як ми перевіряємо файли',
     'av-info-1': 'Кожен файл для завантаження (включно з package.zip) перевіряється антивірусом ClamAV у GitHub Actions одразу після завантаження в каталог, ще до публікації.',
     'av-info-2': 'Перед скануванням бази сигнатур оновлюються до найновіших (freshclam).',
@@ -21,6 +34,14 @@ const UI_STRINGS = {
     'tab-mods': 'Mods',
     'tab-authors': 'Authors',
     'loading': 'Loading...',
+    'sort-label': 'Sort by',
+    'sort-newest': 'Newest',
+    'sort-updated': 'Recently updated',
+    'sort-rating': 'Top rated',
+    'sort-name': 'Name',
+    'sort-author': 'Author',
+    'card-added': 'Added {date}',
+    'card-updated': 'Updated {date}',
     'av-info-title': 'How we check files',
     'av-info-1': 'Every downloadable file (including package.zip) is scanned with the ClamAV antivirus in GitHub Actions right after it is uploaded, before it is published.',
     'av-info-2': 'Virus signature databases are updated to the latest version (freshclam) right before scanning.',
@@ -42,6 +63,9 @@ class LilkaRepository {
     this.defaultLanguage = 'uk';
     this.currentLang = this.loadLanguage();
     this.dataBase = this.readDataBase();
+    this.sort = this.loadSort();
+    // listing.json per kind, fetched once per visit
+    this.listings = {};
     // community.js is optional: without it the catalog stays read-only
     this.community =
         typeof CommunityUI !== 'undefined' ? new CommunityUI(this) : null;
@@ -154,6 +178,71 @@ class LilkaRepository {
     return this.dataBase ? `${url}?download` : url;
   }
 
+  loadSort() {
+    let sort = null;
+    try {
+      sort = localStorage.getItem('lilka-sort');
+    } catch (e) {
+      sort = null;
+    }
+    return SORTS.includes(sort) ? sort : DEFAULT_SORT;
+  }
+
+  setSort(sort) {
+    if (!SORTS.includes(sort) || sort === this.sort) return;
+    this.sort = sort;
+    try {
+      localStorage.setItem('lilka-sort', sort);
+    } catch (e) {
+      // the choice then lasts for this visit only
+    }
+    document.getElementById('sortSelect').value = sort;
+  }
+
+  // listing.json (one per kind, written by the mirror) has what the list
+  // shows and sorts by. Null when a mirror without it is served.
+  async loadListing(type) {
+    if (!(type in this.listings)) {
+      try {
+        const response = await fetch(this.dataUrl(`${type}/listing.json`));
+        this.listings[type] = response.ok ? (await response.json()).items : null;
+      } catch (e) {
+        this.listings[type] = null;
+      }
+    }
+    return this.listings[type];
+  }
+
+  listingEntry(type, path) {
+    return (this.listings[type] || []).find(e => e.path === path) || null;
+  }
+
+  sortItems(items) {
+    const name = (e) => String(this.localized(e, 'name') || e.path);
+    const collator = new Intl.Collator(this.currentLang, {sensitivity: 'base'});
+    const byName = (a, b) => collator.compare(name(a), name(b));
+    // Dates are `YYYY-MM-DD HH:MM:SS` UTC, so text order is time order
+    const byDate = (key) => (a, b) => String(b[key] || '').localeCompare(String(a[key] || '')) || byName(a, b);
+    const compare = {
+      newest: byDate('added'),
+      updated: byDate('updated'),
+      // Unrated last; a higher count wins a tie
+      rating: (a, b) => ((b.rating && b.rating.average) || 0) - ((a.rating && a.rating.average) || 0) ||
+          ((b.rating && b.rating.count) || 0) - ((a.rating && a.rating.count) || 0) || byName(a, b),
+      name: byName,
+      author: (a, b) => collator.compare(String(a.author || ''), String(b.author || '')) || byName(a, b),
+    }[this.sort] || byName;
+    return [...items].sort(compare);
+  }
+
+  formatDate(value) {
+    if (!value) return '';
+    const date = new Date(`${String(value).replace(' ', 'T')}Z`);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toLocaleDateString(this.currentLang === 'uk' ? 'uk-UA' : 'en-GB',
+        {year: 'numeric', month: 'short', day: 'numeric'});
+  }
+
   isCommunityView(type) {
     return !!this.community && this.community.handles(type);
   }
@@ -178,6 +267,7 @@ class LilkaRepository {
     const type = params.get('type');
     const page = params.get('page');
     const item = params.get('item');
+    if (SORTS.includes(params.get('sort'))) this.setSort(params.get('sort'));
 
     if (this.isCommunityView(type)) {
       await this.community.show(type, params);
@@ -270,10 +360,13 @@ class LilkaRepository {
       params.set('type', type);
       params.set('item', itemName);
     } else if (type) {
-      // Page navigation: ?type=apps&page=1
+      // Page navigation: ?type=apps&page=1&sort=rating
       params.set('type', type);
       if (page !== null && page > 0) {
         params.set('page', page);
+      }
+      if (this.sort !== DEFAULT_SORT && ['apps', 'wallpapers', 'mods'].includes(type)) {
+        params.set('sort', this.sort);
       }
     }
 
@@ -339,6 +432,16 @@ class LilkaRepository {
     });
 
     // Pagination (top & bottom)
+    // Sorting is done on the page: listing.json holds every item of the tab
+    const sortSelect = document.getElementById('sortSelect');
+    sortSelect.value = this.sort;
+    sortSelect.addEventListener('change', () => {
+      this.setSort(sortSelect.value);
+      if (window.umami) window.umami.track('sort', {sort: this.sort});
+      this.currentPage = 0;
+      this.loadPage();
+    });
+
     for (const id of ['prevPage', 'prevPageBottom']) {
       document.getElementById(id).addEventListener('click', () => {
         if (this.currentPage > 0) {
@@ -520,6 +623,21 @@ class LilkaRepository {
     this.hideError();
 
     try {
+      const listing = await this.loadListing(this.currentType);
+      if (listing) {
+        const sorted = this.sortItems(listing);
+        this.totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
+        if (this.currentPage >= this.totalPages) this.currentPage = 0;
+        const items = document.getElementById('items');
+        items.innerHTML = '';
+        sorted.slice(this.currentPage * PAGE_SIZE, (this.currentPage + 1) * PAGE_SIZE)
+            .forEach(entry => items.appendChild(this.createItemCard(entry, entry.path)));
+        this.updatePagination();
+        this.updateURL(this.currentType, this.currentPage);
+        return;
+      }
+
+      // Mirror without listing.json: the old index pages, sorted by id
       const indexPath = `${this.currentType}/index_${this.currentPage}.json`;
       const response = await fetch(this.dataUrl(indexPath));
 
@@ -596,6 +714,7 @@ class LilkaRepository {
         this.escapeHtml(
             manifest.author)}">${this.escapeHtml(manifest.author)}</a></div>
             <div class="short-desc">${this.escapeHtml(cardShortDesc)}</div>
+            ${this.renderCardMeta(manifest)}
         `;
 
     // Author link click — navigate to authors page
@@ -615,12 +734,36 @@ class LilkaRepository {
             'view-details',
             {type: this.currentType, name: manifest.name, item: manifestName});
       }
-      this.showModal(manifest, manifestName);
+      // A listing entry is a summary; the details come from index.json
+      if (manifest.path !== undefined) {
+        this.openDirectItem(this.currentType, manifestName);
+      } else {
+        this.showModal(manifest, manifestName);
+      }
       // Update URL when opening modal
       this.updateURL(this.currentType, null, manifestName);
     });
 
     return card;
+  }
+
+  // Rating and last update, from listing.json; manifests have neither
+  renderCardMeta(entry) {
+    const parts = [];
+    if (entry.rating && entry.rating.count) {
+      parts.push(`<span class="card-rating" title="${this.escapeHtml(String(entry.rating.count))}">★ ${
+          this.escapeHtml(String(entry.rating.average))} <span class="card-rating-count">(${
+          this.escapeHtml(String(entry.rating.count))})</span></span>`);
+    }
+    // The date the list is sorted by; "updated" otherwise
+    const key = this.sort === 'newest' ? 'added' : 'updated';
+    const date = this.formatDate(entry[key]);
+    if (date) {
+      const strings = UI_STRINGS[this.currentLang] || UI_STRINGS[this.defaultLanguage];
+      parts.push(`<span class="card-date">${
+          this.escapeHtml(strings[`card-${key}`].replace('{date}', date))}</span>`);
+    }
+    return parts.length ? `<div class="card-meta">${parts.join('')}</div>` : '';
   }
 
   // --- Modal section renderers -------------------------------------------
@@ -924,6 +1067,12 @@ class LilkaRepository {
         avInfo.hidden = !avInfo.hidden;
         avInfoBtn.setAttribute('aria-expanded', String(!avInfo.hidden));
       });
+    }
+
+    // Stars and "rate this" for signed-in users (community.js)
+    if (this.community) {
+      this.community.mountRating(modalBody, this.currentType, manifestName,
+          this.listingEntry(this.currentType, manifestName));
     }
 
     // Copy-hash buttons

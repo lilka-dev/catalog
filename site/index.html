@@ -52,6 +52,17 @@
         <div id="error" class="error" style="display: none;"></div>
         
         <div id="content">
+            <div class="list-toolbar">
+                <label for="sortSelect" data-i18n="sort-label">Sort by</label>
+                <select id="sortSelect">
+                    <option value="newest" data-i18n="sort-newest">Newest</option>
+                    <option value="updated" data-i18n="sort-updated">Recently updated</option>
+                    <option value="rating" data-i18n="sort-rating">Top rated</option>
+                    <option value="name" data-i18n="sort-name">Name</option>
+                    <option value="author" data-i18n="sort-author">Author</option>
+                </select>
+            </div>
+
             <div class="pagination">
                 <button id="prevPage" class="btn" disabled>←</button>
                 <div id="pageNumbers" class="page-numbers"></div>
