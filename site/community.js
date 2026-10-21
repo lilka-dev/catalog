@@ -84,6 +84,8 @@ const COMMUNITY_STRINGS = {
     'status-rejected': 'відхилено',
     'status-infected': 'знайдено загрозу',
     'review-note': 'Коментар модератора',
+    'files-removed': 'Файли цієї версії видалено після відхилення.',
+    'file-gone': 'Цього файлу вже немає.',
     'scan-detail': 'Результат антивірусу',
     'mod-title': 'Модерація',
     'mod-empty': 'Тут порожньо.',
@@ -192,6 +194,8 @@ const COMMUNITY_STRINGS = {
     'status-rejected': 'rejected',
     'status-infected': 'threat found',
     'review-note': 'Moderator note',
+    'files-removed': 'The files of this version were deleted when it was rejected.',
+    'file-gone': 'This file is no longer available.',
     'scan-detail': 'Antivirus result',
     'mod-title': 'Moderation',
     'mod-empty': 'Nothing here.',
@@ -518,6 +522,7 @@ class CommunityUI {
     const response = await fetch(url, {
       headers: this.token ? {Authorization: `Bearer ${this.token}`} : {},
     });
+    if (response.status === 404) throw new Error(this.t('file-gone'));
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     return response.blob();
   }
@@ -590,14 +595,23 @@ class CommunityUI {
     return name[this.app.currentLang] || name.uk || name.en || app.slug;
   }
 
+  // One request with every version and its review state; fetching each app
+  // on its own cost a Worker request per app every time the page opened
   async loadMyApps() {
     const {items} = await this.request(
-        'GET', `/users/${encodeURIComponent(this.user.login)}/apps`);
-    // The list carries only the latest approved version; owners need all of
-    // them with their review state
-    this.myApps = await Promise.all(
-        items.map(a => this.request('GET', `/apps/${encodeURIComponent(a.slug)}`)));
+        'GET', `/users/${encodeURIComponent(this.user.login)}/apps?versions`);
+    this.myApps = items;
     return this.myApps;
+  }
+
+  // The API stores UTC as `YYYY-MM-DD HH:MM:SS`; show it in the viewer's time
+  formatTime(value) {
+    if (!value) return '';
+    const date = new Date(`${String(value).replace(' ', 'T')}Z`);
+    if (Number.isNaN(date.getTime())) return String(value);
+    return date.toLocaleString(this.app.currentLang === 'uk' ? 'uk-UA' : 'en-GB', {
+      year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+    });
   }
 
   // --- Publish ---------------------------------------------------------------
@@ -913,9 +927,13 @@ class CommunityUI {
     }
     const files = [v.entry, ...v.files, v.icon, ...v.screenshots]
         .filter((f, i, all) => f && all.findIndex(o => o && o.name === f.name) === i);
+    const created = this.formatTime(v.created_at);
     const meta = v.entry_type ?
-        `${this.esc(v.entry_type)} · Keira ≥ ${this.esc(v.keira_version)} · ${this.esc(v.created_at)}` :
-        this.esc(v.created_at);
+        `${this.esc(v.entry_type)} · Keira ≥ ${this.esc(v.keira_version)} · ${this.esc(created)}` :
+        this.esc(created);
+    // The API deletes the files of rejected and infected versions; offering
+    // to open them would only end in "not found"
+    const removed = v.status === 'rejected' || v.status === 'infected';
     return `
       <div class="community-version">
         <div class="community-version-head">
@@ -925,7 +943,8 @@ class CommunityUI {
         </div>
         ${v.changelog ? `<div class="community-hint">${this.esc(v.changelog)}</div>` : ''}
         ${notes.join('')}
-        ${withFiles ? `<div class="community-files">${files.map(f => `
+        ${withFiles && removed ? `<div class="community-hint">${this.esc(this.t('files-removed'))}</div>` : ''}
+        ${withFiles && !removed ? `<div class="community-files">${files.map(f => `
           <span class="community-file">
             ${this.esc(f.name)}
             <button class="btn-sm" data-file-view="${this.esc(f.url)}" data-name="${this.esc(f.name)}">${this.esc(this.t('view'))}</button>
@@ -1082,7 +1101,7 @@ class CommunityUI {
             <div class="community-card-head">
               <div>
                 <code class="community-slug">${this.esc(r.slug)}</code>
-                <span class="community-hint">${this.esc(this.t('by'))} ${this.esc(r.reporter)} · ${this.esc(r.created_at)}</span>
+                <span class="community-hint">${this.esc(this.t('by'))} ${this.esc(r.reporter)} · ${this.esc(this.formatTime(r.created_at))}</span>
                 <p>${this.esc(r.reason)}</p>
               </div>
               <div class="community-actions">

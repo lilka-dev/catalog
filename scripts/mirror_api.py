@@ -10,10 +10,20 @@ for file copy of it:
     <dir>/<id>/index.json, index_short.json, package.zip, static/<file>
     authors.json
 
+Every request to the API counts against the Worker's daily limit, so the copy
+is cheap:
+
+- all JSON documents come from one request, /catalog/export.json;
+- with --skip-unchanged the run stops there when the export's stamp is the one
+  the live mirror was built from (mirror-state.json on Pages);
+- files of items whose version did not change are copied from the live Pages
+  site, not from the API. Versions never change after approval, so this is
+  the same bytes.
+
 Any failed download fails the whole run, so Pages never gets a half catalog.
 
 Usage:
-    python3 scripts/mirror_api.py --api https://lilka-catalog-api....workers.dev --out build
+    python3 scripts/mirror_api.py --api https://...workers.dev --out build [--skip-unchanged]
 """
 
 import argparse
@@ -25,89 +35,108 @@ from urllib.parse import quote
 
 import requests
 
-DIRS = ("apps", "wallpapers", "mods")
+STATE_FILE = "mirror-state.json"
 
 
-class Mirror:
-    def __init__(self, api, out):
-        self.base = api.rstrip("/") + "/catalog"
-        self.out = out
-        self.session = requests.Session()
-        self.files = 0
+def path_url(base, path):
+    # Names like `bmp280%2Bbme280_lilka.lua` must reach the server literally
+    return base.rstrip("/") + "/" + "/".join(quote(part, safe="") for part in path.split("/"))
 
-    def url(self, *parts):
-        # Names like `bmp280%2Bbme280_lilka.lua` must reach the API literally
-        return "/".join([self.base] + [quote(p, safe="") for p in parts])
 
-    def fetch(self, *parts, optional=False):
-        response = self.session.get(self.url(*parts), timeout=120)
-        if optional and response.status_code == 404:
-            return None
-        response.raise_for_status()
-        path = os.path.join(self.out, *parts)
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "wb") as f:
-            f.write(response.content)
-        self.files += 1
-        return response.content
+def write(out, path, data):
+    target = os.path.join(out, *path.split("/"))
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    mode = "w" if isinstance(data, str) else "wb"
+    with open(target, mode, **({"encoding": "utf-8"} if mode == "w" else {})) as f:
+        f.write(data)
 
-    def item(self, dirname, item_id):
-        doc = json.loads(self.fetch(dirname, item_id, "index.json"))
-        if dirname != "mods":
-            self.fetch(dirname, item_id, "index_short.json")
-        static = set()
-        if doc.get("entryfile"):
-            static.add(doc["entryfile"]["location"])
-        for key in ("files", "modfiles"):
-            for f in doc.get(key) or []:
-                static.add(f["location"])
-        for key in ("icon", "icon_min"):
-            if doc.get(key):
-                static.add(doc[key])
-        static.update(doc.get("screenshots") or [])
-        for name in sorted(static):
-            self.fetch(dirname, item_id, "static", name)
-        if doc.get("package"):
-            self.fetch(dirname, item_id, doc["package"])
 
-    def run(self):
-        jobs = []
-        for dirname in DIRS:
-            first = self.fetch(dirname, "index_0.json", optional=True)
-            if first is None:
-                continue
-            index = json.loads(first)
-            ids = list(index["manifests"])
-            for page in range(1, index["total_pages"]):
-                ids += json.loads(self.fetch(dirname, f"index_{page}.json"))["manifests"]
-            print(f"{dirname}: {len(ids)}")
-            jobs += [(dirname, item_id) for item_id in ids]
-        # An empty API (import not run yet, wrong address) must not wipe the
-        # catalog that devices see; keep the last deployed mirror instead
-        if not jobs:
-            sys.exit("the API has no published apps; refusing to publish an empty mirror")
-        self.fetch("authors.json")
-
-        with ThreadPoolExecutor(max_workers=8) as pool:
-            futures = {pool.submit(self.item, d, i): f"{d}/{i}" for d, i in jobs}
-            errors = []
-            for future, name in futures.items():
-                try:
-                    future.result()
-                except Exception as e:
-                    errors.append(f"{name}: {e}")
-        if errors:
-            print("\n".join(errors), file=sys.stderr)
-            sys.exit(f"{len(errors)} item(s) failed, mirror not written completely")
-        print(f"{self.files} files mirrored")
+def github_output(**values):
+    target = os.environ.get("GITHUB_OUTPUT")
+    if target:
+        with open(target, "a") as f:
+            for key, value in values.items():
+                f.write(f"{key}={value}\n")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--api", default=os.environ.get("API_URL"), required=not os.environ.get("API_URL"))
+    parser.add_argument("--pages", default=os.environ.get("PAGES_URL", "https://catalog.lilka.dev"),
+                        help="live mirror to reuse unchanged files from")
     parser.add_argument("--out", default="build")
+    parser.add_argument("--skip-unchanged", action="store_true",
+                        help="do nothing when the catalog is the one already published")
     args = parser.parse_args()
-    Mirror(args.api, args.out).run()
+
+    api = args.api.rstrip("/") + "/catalog"
+    session = requests.Session()
+
+    response = session.get(f"{api}/export.json", timeout=120)
+    response.raise_for_status()
+    export = response.json()
+    items = export["items"]
+    # An empty API (wrong address, broken import) must not wipe the catalog
+    # that devices see; keep the last deployed mirror instead
+    if not items:
+        sys.exit("the API has no published apps; refusing to publish an empty mirror")
+
+    previous = {}
+    try:
+        live = session.get(f"{args.pages.rstrip('/')}/{STATE_FILE}", timeout=30)
+        if live.ok:
+            previous = live.json()
+    except (requests.RequestException, ValueError):
+        previous = {}
+
+    if args.skip_unchanged and previous.get("stamp") == export["stamp"]:
+        print(f"catalog unchanged ({export['stamp'][:12]}), nothing to publish")
+        github_output(changed="false")
+        return
+
+    for path, text in export["documents"].items():
+        write(args.out, path, text)
+
+    old = previous.get("items", {})
+    jobs = []
+    for base, item in items.items():
+        same = old.get(base, {}).get("version") == item["version"]
+        jobs += [(f"{base}/{name}", same) for name in item["files"]]
+
+    counts = {"pages": 0, "api": 0}
+
+    def fetch(job):
+        path, same = job
+        if same:
+            # Unchanged version: identical bytes are already on Pages
+            r = session.get(path_url(args.pages, path), timeout=120)
+            if r.ok:
+                write(args.out, path, r.content)
+                counts["pages"] += 1
+                return
+        r = session.get(path_url(api, path), timeout=120)
+        r.raise_for_status()
+        write(args.out, path, r.content)
+        counts["api"] += 1
+
+    errors = []
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        for job, future in [(job, pool.submit(fetch, job)) for job in jobs]:
+            try:
+                future.result()
+            except Exception as e:
+                errors.append(f"{job[0]}: {e}")
+    if errors:
+        print("\n".join(errors), file=sys.stderr)
+        sys.exit(f"{len(errors)} file(s) failed, mirror not written completely")
+
+    write(args.out, STATE_FILE, json.dumps({
+        "stamp": export["stamp"],
+        "items": {base: {"version": item["version"]} for base, item in items.items()},
+    }, indent=2))
+    print(f"{len(items)} items, {len(export['documents'])} documents from 1 API request; "
+          f"files: {counts['pages']} reused from Pages, {counts['api']} from the API")
+    github_output(changed="true")
 
 
 if __name__ == "__main__":

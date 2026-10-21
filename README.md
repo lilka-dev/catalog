@@ -60,9 +60,13 @@ push, on every approval (`repository_dispatch: api-sync`) and hourly. The copy
 fails as a whole if any file is missing, so the devices never get half a
 catalog.
 
-The website reads the API directly; the address is in
-`<meta name="lilka-api">` in `site/index.html`. With it empty, the site reads
-the mirror next to it instead.
+The website reads the public catalog from that mirror too: it is served by
+GitHub's CDN for free, while every request to the API counts against the
+Worker's daily limit. Only sign-in, publishing and moderation talk to the API,
+whose address is in `<meta name="lilka-api">` in `site/index.html`. The mirror
+itself costs one API request per run (`/catalog/export.json`), copies files of
+unchanged items from Pages, and the hourly run stops early when nothing
+changed.
 
 ## Local development
 
