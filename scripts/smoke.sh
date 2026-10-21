@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end check against `wrangler dev`: upload -> scan -> approve -> export.
+# End-to-end check against `wrangler dev`: upload -> process -> approve -> /catalog.
 #
 # GitHub login cannot run locally, so two users and their sessions are written
 # straight into the local D1. Needs `npm run db:migrate:local` and a running
@@ -14,7 +14,7 @@ MOD_TOKEN=smoke-mod-token
 sha() { printf '%s' "$1" | shasum -a 256 | cut -d' ' -f1; }
 
 npx wrangler d1 execute lilka-catalog --local --command "
-DELETE FROM sessions; DELETE FROM ratings; DELETE FROM reports; DELETE FROM versions; DELETE FROM apps; DELETE FROM users;
+DELETE FROM sessions; DELETE FROM ratings; DELETE FROM reports; DELETE FROM versions; DELETE FROM apps; DELETE FROM users WHERE id != 0;
 INSERT INTO users (id, login, role) VALUES (1, 'smoke-dev', 'user'), (2, 'smoke-mod', 'moderator'), (3, 'smoke-fan', 'user');
 INSERT INTO sessions VALUES ('$(sha $USER_TOKEN)', 1, datetime('now', '+1 day'));
 INSERT INTO sessions VALUES ('$(sha $MOD_TOKEN)', 2, datetime('now', '+1 day'));
@@ -70,8 +70,13 @@ call 200 "scanner lists pending" "${scanner[@]}" "$API/scan/pending"
 call 200 "scanner reads version" "${scanner[@]}" "$API/scan/versions/$version_id"
 call 200 "scanner downloads file" "${scanner[@]}" "$(jq -r '.files[0].url' "$work/body")"
 cmp -s "$work/body" "$work/hello.lua" || { echo "FAIL scanned file differs"; exit 1; }
-call 200 "scanner reports clean" "${scanner[@]}" "${json[@]}" -X POST "$API/scan/versions/$version_id" -d '{"result":"clean","detail":"smoke"}'
-call 409 "second verdict ignored" "${scanner[@]}" "${json[@]}" -X POST "$API/scan/versions/$version_id" -d '{"result":"infected"}'
+call 400 "processor cannot write foreign files" "${scanner[@]}" -X POST "$API/scan/versions/$version_id" \
+    -F result=clean -F "artifact=@$work/hello.lua;filename=../evil.lua"
+call 200 "processor reports clean" "${scanner[@]}" -X POST "$API/scan/versions/$version_id" \
+    -F result=clean -F detail=smoke -F icon_min=icon_min.bin -F package=package.zip \
+    -F 'security={"scan_date":"smoke","clamav_available":true,"files":[]}' \
+    -F "artifact=@$work/icon.png;filename=icon_min.bin" -F "artifact=@$work/hello.lua;filename=package.zip"
+call 409 "second verdict ignored" "${scanner[@]}" -X POST "$API/scan/versions/$version_id" -F result=infected
 
 call 200 "moderator queue" "${mod[@]}" "$API/mod/queue"
 [ "$(jq -r '.items | length' "$work/body")" = 1 ] || { echo "FAIL queue length"; exit 1; }
@@ -91,13 +96,46 @@ call 200 "rate" "${fan[@]}" "${json[@]}" -X PUT "$API/apps/smoke-hello/rating" -
 call 201 "report" "${fan[@]}" "${json[@]}" -X POST "$API/apps/smoke-hello/reports" -d '{"reason":"smoke"}'
 call 200 "open reports" "${mod[@]}" "$API/mod/reports"
 
-call 200 "export" "$API/export/manifests"
-jq -e '.items[0].manifest.entryfile.location.origin | endswith("/hello.lua")' "$work/body" >/dev/null || { echo "FAIL export"; exit 1; }
-cp "$work/body" "${EXPORT_OUT:-/dev/null}"
+call 200 "catalog index lists the app" "$API/catalog/apps/index_0.json"
+jq -e '.manifests | index("smoke-hello")' "$work/body" >/dev/null || { echo "FAIL catalog index"; exit 1; }
+call 200 "catalog index.json" "$API/catalog/apps/smoke-hello/index.json"
+jq -e '.entryfile.location == "hello.lua" and .icon_min == "icon_min.bin" and .package == "package.zip" and .author == "@smoke-dev"' \
+    "$work/body" >/dev/null || { echo "FAIL catalog doc"; cat "$work/body"; exit 1; }
+call 200 "catalog index_short.json" "$API/catalog/apps/smoke-hello/index_short.json"
+call 200 "catalog static entry file" "$API/catalog/apps/smoke-hello/static/hello.lua"
+cmp -s "$work/body" "$work/hello.lua" || { echo "FAIL catalog static bytes"; exit 1; }
+call 200 "catalog icon_min" "$API/catalog/apps/smoke-hello/static/icon_min.bin"
+call 404 "catalog refuses unlisted file" "$API/catalog/apps/smoke-hello/static/secret.txt"
+call 200 "catalog package download" "$API/catalog/apps/smoke-hello/package.zip?download"
+call 200 "catalog authors.json" "$API/catalog/authors.json"
+jq -e '."@smoke-dev"[0].path == "smoke-hello"' "$work/body" >/dev/null || { echo "FAIL authors"; exit 1; }
+call 404 "catalog unknown kind" "$API/catalog/games/index_0.json"
+
+# wrangler dev's local explorer lists the bucket; R2 keys are <app id>-<slug>/v/<version>/<file>
+r2_keys=$(curl -sS "$API/cdn-cgi/local/explorer/api/r2/buckets/lilka-catalog-files/objects?limit=1000" | jq -r '.result[].key')
+echo "$r2_keys" | grep -q "^[0-9]*-smoke-hello/v/1\.0\.0/hello\.lua$" && r2=ok || r2=missing
+check "R2 layout <id>-<slug>/v/<version>/<file>" ok "$r2"
+
+call 201 "create mod" "${user[@]}" "${json[@]}" -X POST "$API/apps" \
+    -d '{"slug":"smoke-case","kind":"mod","name":"Корпус","short_description":"Друкований корпус","sources_url":"https://www.printables.com/model/1"}'
+printf 'solid case\nendsolid case\n' > "$work/case.stl"
+call 400 "mod rejects entry file" "${user[@]}" -X POST "$API/apps/smoke-case/versions" -F version=1.0.0 -F "entry=@$work/hello.lua"
+call 201 "mod upload without entry" "${user[@]}" -X POST "$API/apps/smoke-case/versions" \
+    -F version=1.0.0 -F "files=@$work/case.stl" -F "icon=@$work/icon.png" -F "screenshots=@$work/icon.png"
+
+printf 'X5O!P%%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*\n' > "$work/evil.lua"
+call 201 "upload infected version" "${user[@]}" -X POST "$API/apps/smoke-hello/versions" \
+    -F version=1.0.1 -F keira_version=1.0.0 -F entry_type=lua -F "entry=@$work/evil.lua"
+evil_id=$(jq -r .id "$work/body")
+call 200 "processor reports infected" "${scanner[@]}" -X POST "$API/scan/versions/$evil_id" -F result=infected -F 'detail=evil.lua: Eicar FOUND'
+call 409 "infected version cannot be approved" "${mod[@]}" "${json[@]}" -X POST "$API/mod/versions/$evil_id/approve" -d '{}'
+call 200 "catalog still serves the clean version" "$API/catalog/apps/smoke-hello/index.json"
+jq -e '.entryfile.location == "hello.lua"' "$work/body" >/dev/null || { echo "FAIL infected leaked"; exit 1; }
 
 call 200 "owner hides app" "${user[@]}" "${json[@]}" -X PATCH "$API/apps/smoke-hello" -d '{"status":"hidden"}'
-call 200 "hidden app leaves export" "$API/export/manifests"
-[ "$(jq -r '.items | length' "$work/body")" = 0 ] || { echo "FAIL hidden in export"; exit 1; }
+call 404 "hidden app leaves the catalog" "$API/catalog/apps/smoke-hello/index.json"
+call 403 "author change needs moderator" "${user[@]}" "${json[@]}" -X PATCH "$API/apps/smoke-hello" -d '{"author":"@someone"}'
+call 200 "moderator sets author" "${mod[@]}" "${json[@]}" -X PATCH "$API/apps/smoke-hello" -d '{"author":"@historic"}'
 call 200 "owner republishes" "${user[@]}" "${json[@]}" -X PATCH "$API/apps/smoke-hello" -d '{"status":"published"}'
 
 echo "all $pass checks passed"

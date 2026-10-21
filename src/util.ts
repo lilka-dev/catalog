@@ -2,7 +2,7 @@ import type { Context } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import type { AppEnv, Env, User } from './env';
 
-export function fail(status: 400 | 401 | 403 | 404 | 409 | 413 | 429 | 502, message: string): never {
+export function fail(status: 400 | 401 | 403 | 404 | 409 | 413 | 429 | 502 | 503, message: string): never {
     throw new HTTPException(status, { message });
 }
 
@@ -58,12 +58,18 @@ export const VERSION_RE = /^[0-9A-Za-z][0-9A-Za-z.+-]{0,31}$/;
 // names must be plain and unique within a version.
 export const FILENAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 
-export type EntryType = 'lua' | 'archive' | 'binary';
+// Imported apps keep the names they had in the repo, e.g. `LilkaCubes` or
+// `bmp280%2Bbme280_lilka.lua`: Keira already caches entries under them
+export const LOOSE_NAME_RE = /^(?!\.\.?$)[^/\\\x00-\x1f]{1,200}$/;
 
-/** Same mapping as `infer_type_from_extension` in the catalog's build.py. */
+export type EntryType = 'lua' | 'archive' | 'binary' | 'js';
+export const ENTRY_TYPES: readonly EntryType[] = ['lua', 'archive', 'binary', 'js'];
+
+/** Same mapping as `infer_type_from_extension` in the old catalog build.py, plus mJS. */
 export function entryTypeOf(filename: string): EntryType | null {
     const name = filename.toLowerCase();
     if (name.endsWith('.lua')) return 'lua';
+    if (name.endsWith('.js')) return 'js';
     if (name.endsWith('.bin')) return 'binary';
     if (/\.(zip|tar|tar\.gz|tgz)$/.test(name)) return 'archive';
     return null;
@@ -75,6 +81,9 @@ export function isImageName(filename: string): boolean {
 
 const CONTENT_TYPES: Record<string, string> = {
     lua: 'text/plain; charset=utf-8',
+    js: 'text/plain; charset=utf-8',
+    bin: 'application/octet-stream',
+    stl: 'model/stl',
     png: 'image/png',
     jpg: 'image/jpeg',
     jpeg: 'image/jpeg',

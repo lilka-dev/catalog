@@ -1,26 +1,19 @@
 import { Hono, type Context } from 'hono';
 import type { AppEnv, Env, User } from './env';
 import {
-    FILENAME_RE,
+    LOOSE_NAME_RE,
     contentTypeOf,
     SLUG_RE,
-    VERSION_RE,
     dispatch,
-    entryTypeOf,
     fail,
-    isImageName,
     parseJsonArray,
     readJson,
     requireUser,
-    sha256Hex,
     type EntryType,
 } from './util';
+import { MAX_UPLOAD_BYTES, createVersion, objectKey, readVersionForm } from './versions';
 
 const PAGE_SIZE = 24;
-const MAX_FILE_BYTES = 8 * 1024 * 1024;
-const MAX_UPLOAD_BYTES = 24 * 1024 * 1024;
-const MAX_EXTRA_FILES = 16;
-const MAX_SCREENSHOTS = 6;
 /** Unreviewed uploads per user: keeps one account from flooding the queue. */
 const MAX_PENDING_PER_USER = 5;
 
@@ -28,13 +21,15 @@ export interface AppRow {
     id: number;
     slug: string;
     owner_id: number;
-    kind: 'app' | 'wallpaper';
+    kind: 'app' | 'wallpaper' | 'mod';
+    author: string | null;
     name_uk: string | null;
     name_en: string | null;
     short_uk: string | null;
     short_en: string | null;
     description_uk: string | null;
     description_en: string | null;
+    sources_type: string | null;
     sources_url: string;
     license: string | null;
     status: 'draft' | 'published' | 'hidden';
@@ -50,15 +45,23 @@ export interface VersionRow {
     id: number;
     app_id: number;
     version: string;
-    keira_version: string;
-    entry_type: EntryType;
-    entry_file: string;
+    keira_version: string | null;
+    entry_type: EntryType | null;
+    entry_file: string | null;
     files: string;
+    files_meta: string | null;
     icon: string | null;
     screenshots: string;
     changelog: string | null;
+    changelog_en: string | null;
     checksums: string;
     status: 'pending_scan' | 'pending_review' | 'approved' | 'rejected' | 'infected';
+    auto_approve: number;
+    icon_min: string | null;
+    package: string | null;
+    security: string | null;
+    processed_at: string | null;
+    storage_prefix: string;
     scan_detail: string | null;
     review_note: string | null;
     created_at: string;
@@ -75,6 +78,15 @@ export function fileUrl(env: Env, slug: string, versionId: number, name: string)
     return `${env.PUBLIC_URL.replace(/\/$/, '')}/files/${slug}/${versionId}/${encodeURIComponent(name)}`;
 }
 
+/** The author line of the catalog: free text for imported apps, the GitHub login otherwise. */
+export function displayAuthor(a: Pick<AppRow, 'author' | 'owner_login'>): string {
+    return a.author ?? `@${a.owner_login}`;
+}
+
+export function kindDir(kind: AppRow['kind']): 'apps' | 'wallpapers' | 'mods' {
+    return kind === 'app' ? 'apps' : kind === 'wallpaper' ? 'wallpapers' : 'mods';
+}
+
 function localized(uk: string | null, en: string | null): Record<string, string> {
     const out: Record<string, string> = {};
     if (uk) out.uk = uk;
@@ -86,6 +98,13 @@ export function serializeVersion(env: Env, slug: string, v: VersionRow, detailed
     const files = parseJsonArray<string>(v.files);
     const screenshots = parseJsonArray<string>(v.screenshots);
     const url = (name: string) => fileUrl(env, slug, v.id, name);
+    const ref = (name: string | null) => (name ? { name, url: url(name) } : null);
+    let security: unknown = null;
+    try {
+        security = v.security ? JSON.parse(v.security) : null;
+    } catch {
+        security = null;
+    }
     return {
         id: v.id,
         version: v.version,
@@ -95,11 +114,14 @@ export function serializeVersion(env: Env, slug: string, v: VersionRow, detailed
         changelog: v.changelog,
         created_at: v.created_at,
         approved_at: v.approved_at,
-        entry: { name: v.entry_file, url: url(v.entry_file) },
+        entry: ref(v.entry_file),
         files: files.map((name) => ({ name, url: url(name) })),
-        icon: v.icon ? { name: v.icon, url: url(v.icon) } : null,
+        icon: ref(v.icon),
+        icon_min: ref(v.icon_min),
+        package: ref(v.package),
         screenshots: screenshots.map((name) => ({ name, url: url(name) })),
         checksums: parseJsonArray(v.checksums),
+        security,
         ...(detailed ? { scan_detail: v.scan_detail, review_note: v.review_note } : {}),
     };
 }
@@ -108,10 +130,13 @@ export function serializeApp(env: Env, a: AppRow, latest: VersionRow | null) {
     return {
         slug: a.slug,
         kind: a.kind,
+        catalog_path: `${kindDir(a.kind)}/${a.slug}`,
         status: a.status,
+        author: displayAuthor(a),
         name: localized(a.name_uk, a.name_en),
         short_description: localized(a.short_uk, a.short_en),
         description: localized(a.description_uk, a.description_en),
+        sources_type: a.sources_type,
         sources_url: a.sources_url,
         license: a.license,
         owner: { login: a.owner_login, avatar_url: a.owner_avatar },
@@ -149,22 +174,28 @@ function canManage(user: User | null, app: AppRow): boolean {
 
 /* ------------------------------------------------------------ input ------ */
 
-type LocalizedInput = string | { uk?: unknown; en?: unknown } | undefined;
+export type LocalizedInput = string | { uk?: unknown; en?: unknown } | undefined;
 
-function readLocalized(value: LocalizedInput, field: string, max: number): { uk: string | null; en: string | null } {
+export function readLocalized(
+    value: LocalizedInput,
+    field: string,
+    max: number,
+    { trim = true }: { trim?: boolean } = {},
+): { uk: string | null; en: string | null } {
     // A bare string is Ukrainian: that is the catalog's default language
     const raw = typeof value === 'string' ? { uk: value } : (value ?? {});
     const pick = (text: unknown, lang: string): string | null => {
         if (text === undefined || text === null || text === '') return null;
         if (typeof text !== 'string') fail(400, `${field}.${lang} must be a string`);
-        const trimmed = text.trim();
+        // Imports keep the repo's Markdown byte for byte, trailing newline included
+        const trimmed = trim ? text.trim() : text;
         if (trimmed.length > max) fail(400, `${field}.${lang} is longer than ${max} characters`);
-        return trimmed || null;
+        return trimmed.trim() ? trimmed : null;
     };
     return { uk: pick(raw.uk, 'uk'), en: pick(raw.en, 'en') };
 }
 
-function readSourcesUrl(value: unknown): string {
+export function readSourcesUrl(value: unknown, { strict = true } = {}): string {
     if (typeof value !== 'string') fail(400, 'sources_url is required');
     let url: URL;
     try {
@@ -172,14 +203,25 @@ function readSourcesUrl(value: unknown): string {
     } catch {
         fail(400, 'sources_url must be a URL');
     }
-    if (url.protocol !== 'https:') fail(400, 'sources_url must use https');
+    // Some repo apps link to plain-http pages; new submissions must use https
+    if (url.protocol !== 'https:' && (strict || url.protocol !== 'http:')) fail(400, 'sources_url must use https');
     return url.toString();
 }
 
-function readLicense(value: unknown): string | null {
+/** `git` for code hosting, `url` for anything else; imports keep what the manifest said. */
+export function sourcesTypeOf(url: string): string {
+    return /^https:\/\/(github\.com|gitlab\.com|codeberg\.org)\//.test(url) ? 'git' : 'url';
+}
+
+export function readLicense(value: unknown): string | null {
     if (value === undefined || value === null || value === '') return null;
     if (typeof value !== 'string' || value.length > 64) fail(400, 'license must be a short string');
     return value.trim();
+}
+
+export function readKind(value: unknown): AppRow['kind'] {
+    if (value !== 'app' && value !== 'wallpaper' && value !== 'mod') fail(400, 'kind must be app, wallpaper or mod');
+    return value;
 }
 
 interface AppInput {
@@ -191,6 +233,8 @@ interface AppInput {
     sources_url?: unknown;
     license?: unknown;
     status?: unknown;
+    author?: unknown;
+    owner?: unknown;
 }
 
 /* ----------------------------------------------------------- routes ------ */
@@ -205,9 +249,8 @@ apps.get('/', async (c) => {
     const where = [`a.status = 'published'`];
     const params: unknown[] = [];
     if (kind) {
-        if (kind !== 'app' && kind !== 'wallpaper') fail(400, 'kind must be app or wallpaper');
         where.push('a.kind = ?');
-        params.push(kind);
+        params.push(readKind(kind));
     }
     if (q) {
         where.push(`(a.name_uk LIKE ? OR a.name_en LIKE ? OR a.short_uk LIKE ? OR a.short_en LIKE ?)`);
@@ -270,7 +313,7 @@ apps.post('/', async (c) => {
     if (typeof body.slug !== 'string' || !SLUG_RE.test(body.slug)) {
         fail(400, 'slug must be 2-48 characters: lowercase letters, digits and dashes');
     }
-    if (body.kind !== 'app' && body.kind !== 'wallpaper') fail(400, 'kind must be app or wallpaper');
+    const kind = readKind(body.kind);
     const name = readLocalized(body.name, 'name', 64);
     const short = readLocalized(body.short_description, 'short_description', 200);
     const description = readLocalized(body.description, 'description', 20000);
@@ -284,19 +327,20 @@ apps.post('/', async (c) => {
 
     await c.env.DB.prepare(
         `INSERT INTO apps (slug, owner_id, kind, name_uk, name_en, short_uk, short_en,
-                           description_uk, description_en, sources_url, license)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                           description_uk, description_en, sources_type, sources_url, license)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
         .bind(
             body.slug,
             user.id,
-            body.kind,
+            kind,
             name.uk,
             name.en,
             short.uk,
             short.en,
             description.uk,
             description.en,
+            sourcesTypeOf(sources),
             sources,
             license,
         )
@@ -336,7 +380,11 @@ apps.patch('/:slug', async (c) => {
         set('description_uk', description.uk);
         set('description_en', description.en);
     }
-    if (body.sources_url !== undefined) set('sources_url', readSourcesUrl(body.sources_url));
+    if (body.sources_url !== undefined) {
+        const sources = readSourcesUrl(body.sources_url, { strict: user.role !== 'moderator' });
+        set('sources_url', sources);
+        set('sources_type', sourcesTypeOf(sources));
+    }
     if (body.license !== undefined) set('license', readLicense(body.license));
     if (body.status !== undefined) {
         if (body.status === 'hidden') {
@@ -353,6 +401,25 @@ apps.patch('/:slug', async (c) => {
             fail(400, 'status must be hidden or published');
         }
     }
+    // Imported apps belong to the catalog account and show the historic author
+    // name; a moderator hands them over once the author signs in
+    if (body.author !== undefined || body.owner !== undefined) {
+        if (user.role !== 'moderator') fail(403, 'only moderators can change the author or owner');
+        if (body.author !== undefined) {
+            if (body.author !== null && (typeof body.author !== 'string' || body.author.length > 64)) {
+                fail(400, 'author must be a short string or null');
+            }
+            set('author', body.author ? (body.author as string).trim() : null);
+        }
+        if (body.owner !== undefined) {
+            if (typeof body.owner !== 'string') fail(400, 'owner must be a GitHub login');
+            const owner = await c.env.DB.prepare(`SELECT id FROM users WHERE login = ? COLLATE NOCASE`)
+                .bind(body.owner)
+                .first<{ id: number }>();
+            if (!owner) fail(404, 'that user has never signed in');
+            set('owner_id', owner.id);
+        }
+    }
     if (sets.length === 0) fail(400, 'nothing to update');
 
     sets.push(`updated_at = datetime('now')`);
@@ -360,7 +427,7 @@ apps.patch('/:slug', async (c) => {
         .bind(...params, app.id)
         .run();
 
-    // Metadata of a published app goes into the catalog: rebuild it
+    // The device mirror is rebuilt from the API; it has to pick this up
     if (app.status === 'published' || body.status !== undefined) {
         c.executionCtx.waitUntil(dispatch(c.env, c.env.CATALOG_REPO, 'api-sync', { slug: app.slug }));
     }
@@ -371,10 +438,10 @@ apps.patch('/:slug', async (c) => {
 
 /**
  * Upload of a new version: multipart form with
- *   version, keira_version, entry_type, changelog  — text fields
- *   entry (1 file), files (0..16), icon (0..1), screenshots (0..6)
+ *   version, keira_version, entry_type, changelog  — text fields (mods: version, changelog)
+ *   entry (1 file, none for mods), files (0..16), icon (0..1), screenshots (0..6)
  *
- * Files are stored right away but stay private until the scan is clean and a
+ * Files are stored right away but stay private until processing is clean and a
  * moderator approves the version.
  */
 apps.post('/:slug/versions', async (c) => {
@@ -400,90 +467,7 @@ apps.post('/:slug/versions', async (c) => {
         fail(400, 'body must be multipart/form-data');
     }
 
-    const text = (key: string, re?: RegExp): string => {
-        const value = form.get(key);
-        if (typeof value !== 'string' || !value.trim()) fail(400, `${key} is required`);
-        if (re && !re.test(value.trim())) fail(400, `${key} has an invalid format`);
-        return value.trim();
-    };
-    const version = text('version', VERSION_RE);
-    const keiraVersion = text('keira_version', VERSION_RE);
-    const entryType = text('entry_type') as EntryType;
-    if (!['lua', 'archive', 'binary'].includes(entryType)) fail(400, 'entry_type must be lua, archive or binary');
-    const changelogRaw = form.get('changelog');
-    const changelog = typeof changelogRaw === 'string' && changelogRaw.trim() ? changelogRaw.trim() : null;
-    if (changelog && changelog.length > 20000) fail(400, 'changelog is too long');
-
-    const filesOf = (key: string): File[] =>
-        form.getAll(key).filter((item): item is File => typeof item !== 'string' && item.size > 0);
-    const entry = filesOf('entry');
-    const extra = filesOf('files');
-    const icon = filesOf('icon');
-    const screenshots = filesOf('screenshots');
-
-    if (entry.length !== 1) fail(400, 'exactly one entry file is required');
-    if (extra.length > MAX_EXTRA_FILES) fail(400, `at most ${MAX_EXTRA_FILES} extra files`);
-    if (icon.length > 1) fail(400, 'at most one icon');
-    if (screenshots.length > MAX_SCREENSHOTS) fail(400, `at most ${MAX_SCREENSHOTS} screenshots`);
-
-    const all = [...entry, ...extra, ...icon, ...screenshots];
-    const names = new Set<string>();
-    let total = 0;
-    for (const file of all) {
-        if (!FILENAME_RE.test(file.name)) fail(400, `bad file name "${file.name}": use letters, digits, . _ -`);
-        if (names.has(file.name)) fail(400, `file name "${file.name}" is used twice`);
-        names.add(file.name);
-        if (file.size > MAX_FILE_BYTES) fail(413, `"${file.name}" is larger than ${MAX_FILE_BYTES} bytes`);
-        total += file.size;
-    }
-    if (total > MAX_UPLOAD_BYTES) fail(413, `upload is larger than ${MAX_UPLOAD_BYTES} bytes`);
-    if (entryTypeOf(entry[0].name) !== entryType) {
-        fail(400, `entry file "${entry[0].name}" does not match entry_type ${entryType}`);
-    }
-    for (const image of [...icon, ...screenshots]) {
-        if (!isImageName(image.name)) fail(400, `"${image.name}" must be a PNG or JPEG`);
-    }
-
-    const duplicate = await c.env.DB.prepare(`SELECT 1 FROM versions WHERE app_id = ? AND version = ?`)
-        .bind(app.id, version)
-        .first();
-    if (duplicate) fail(409, `version ${version} already exists`);
-
-    const row = await c.env.DB.prepare(
-        `INSERT INTO versions (app_id, version, keira_version, entry_type, entry_file, files, icon, screenshots, changelog)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
-    )
-        .bind(
-            app.id,
-            version,
-            keiraVersion,
-            entryType,
-            entry[0].name,
-            JSON.stringify(extra.map((f) => f.name)),
-            icon[0]?.name ?? null,
-            JSON.stringify(screenshots.map((f) => f.name)),
-            changelog,
-        )
-        .first<{ id: number }>();
-    const versionId = row!.id;
-
-    try {
-        const checksums = [];
-        for (const file of all) {
-            const data = await file.arrayBuffer();
-            await c.env.FILES.put(`v/${versionId}/${file.name}`, data);
-            checksums.push({ name: file.name, size: file.size, sha256: await sha256Hex(data) });
-        }
-        await c.env.DB.prepare(`UPDATE versions SET checksums = ? WHERE id = ?`)
-            .bind(JSON.stringify(checksums), versionId)
-            .run();
-    } catch (error) {
-        // A version without its files must not reach the review queue
-        await c.env.DB.prepare(`DELETE FROM versions WHERE id = ?`).bind(versionId).run();
-        await deleteVersionFiles(c.env, versionId);
-        throw error;
-    }
-
+    const versionId = await createVersion(c.env, app, readVersionForm(form, app.kind));
     c.executionCtx.waitUntil(dispatch(c.env, c.env.SCAN_REPO, 'scan-version', { version_id: versionId }));
 
     const created = await c.env.DB.prepare(`SELECT * FROM versions WHERE id = ?`)
@@ -525,11 +509,6 @@ apps.post('/:slug/reports', async (c) => {
     return c.json({ ok: true }, 201);
 });
 
-export async function deleteVersionFiles(env: Env, versionId: number): Promise<void> {
-    const listed = await env.FILES.list({ prefix: `v/${versionId}/` });
-    if (listed.objects.length) await env.FILES.delete(listed.objects.map((o) => o.key));
-}
-
 /* --------------------------------------------------- users and files ------ */
 
 export const users = new Hono<AppEnv>();
@@ -559,14 +538,14 @@ export async function serveFile(c: Context<AppEnv>) {
     const slug = c.req.param('slug')!;
     const versionId = Number(c.req.param('id'));
     const name = c.req.param('name')!;
-    if (!Number.isInteger(versionId) || !FILENAME_RE.test(name)) fail(404, 'file not found');
+    if (!Number.isInteger(versionId) || !LOOSE_NAME_RE.test(name)) fail(404, 'file not found');
 
     const row = await c.env.DB.prepare(
-        `SELECT v.status AS version_status, a.status AS app_status, a.owner_id
+        `SELECT v.status AS version_status, v.storage_prefix, a.status AS app_status, a.owner_id
            FROM versions v JOIN apps a ON a.id = v.app_id WHERE v.id = ? AND a.slug = ?`,
     )
         .bind(versionId, slug)
-        .first<{ version_status: string; app_status: string; owner_id: number }>();
+        .first<{ version_status: string; storage_prefix: string; app_status: string; owner_id: number }>();
     if (!row) fail(404, 'file not found');
 
     // Approved versions stay downloadable while the app is hidden: devices that
@@ -576,7 +555,7 @@ export async function serveFile(c: Context<AppEnv>) {
     const privileged = !!user && (user.id === row.owner_id || user.role === 'moderator');
     if (!isPublic && !privileged) fail(404, 'file not found');
 
-    const object = await c.env.FILES.get(`v/${versionId}/${name}`);
+    const object = await c.env.FILES.get(objectKey(row, name));
     if (!object) fail(404, 'file not found');
 
     const headers = new Headers({

@@ -5,16 +5,17 @@ import type { AppEnv, Env } from './env';
 import { auth, sessionMiddleware } from './auth';
 import { apps, serveFile, users } from './apps';
 import { moderation, scan } from './moderation';
-import { exportRoutes } from './export';
+import { catalog } from './catalog';
 import { allowedOrigins } from './util';
 
 const app = new Hono<AppEnv>();
 
-// Files are public and get their own `*` CORS in serveFile's route below;
+// Files and the catalog tree are public, so any site may read them;
 // everything else carries a session and is limited to our own sites
 app.use('/files/*', cors({ origin: '*', allowHeaders: ['Authorization'] }));
+app.use('/catalog/*', cors({ origin: '*' }));
 app.use('*', async (c, next) => {
-    if (c.req.path.startsWith('/files/')) return next();
+    if (c.req.path.startsWith('/files/') || c.req.path.startsWith('/catalog/')) return next();
     return cors({
         origin: (origin) => (allowedOrigins(c.env).includes(origin) ? origin : null),
         allowHeaders: ['Authorization', 'Content-Type'],
@@ -30,7 +31,7 @@ app.route('/apps', apps);
 app.route('/users', users);
 app.route('/mod', moderation);
 app.route('/scan', scan);
-app.route('/export', exportRoutes);
+app.route('/catalog', catalog);
 app.get('/files/:slug/:id/:name', serveFile);
 
 app.notFound((c) => c.json({ error: 'not found' }, 404));
