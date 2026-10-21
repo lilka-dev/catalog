@@ -48,7 +48,7 @@ File names: Latin letters, digits, `.`, `_` and `-`. Up to 8 MB per file and
                     static mirror of the API's /catalog for Keira devices
 
  lilka-catalog-api (api/, Cloudflare)
-   Worker + D1 + R2  apps, versions, files, users, ratings, moderation
+   Worker + D1 + R2  apps, versions, files, users, moderation
    GitHub Actions    ClamAV scan, icon_min, image compression, package.zip
 ```
 

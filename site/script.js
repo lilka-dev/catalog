@@ -1,7 +1,7 @@
 // Static UI strings per language, applied to elements with [data-i18n]
 // Cards per page; listing.json holds every item, pages are cut here
 const PAGE_SIZE = 12;
-const SORTS = ['newest', 'updated', 'rating', 'name', 'author'];
+const SORTS = ['newest', 'updated', 'name', 'author'];
 const DEFAULT_SORT = 'newest';
 
 const UI_STRINGS = {
@@ -15,9 +15,9 @@ const UI_STRINGS = {
     'sort-label': 'Сортувати',
     'sort-newest': 'Нові',
     'sort-updated': 'Нещодавно оновлені',
-    'sort-rating': 'Найкраща оцінка',
     'sort-name': 'Назва',
     'sort-author': 'Автор',
+    'sort-reverse': 'Зворотний порядок',
     'card-added': 'Додано {date}',
     'card-updated': 'Оновлено {date}',
     'av-info-title': 'Як ми перевіряємо файли',
@@ -37,9 +37,9 @@ const UI_STRINGS = {
     'sort-label': 'Sort by',
     'sort-newest': 'Newest',
     'sort-updated': 'Recently updated',
-    'sort-rating': 'Top rated',
     'sort-name': 'Name',
     'sort-author': 'Author',
+    'sort-reverse': 'Reverse order',
     'card-added': 'Added {date}',
     'card-updated': 'Updated {date}',
     'av-info-title': 'How we check files',
@@ -64,6 +64,8 @@ class LilkaRepository {
     this.currentLang = this.loadLanguage();
     this.dataBase = this.readDataBase();
     this.sort = this.loadSort();
+    // Flips the sort's own direction: oldest first, Z to A
+    this.sortReverse = this.loadSortReverse();
     // listing.json per kind, fetched once per visit
     this.listings = {};
     // community.js is optional: without it the catalog stays read-only
@@ -116,6 +118,10 @@ class LilkaRepository {
     document.querySelectorAll('[data-i18n]').forEach(el => {
       const text = strings[el.dataset.i18n];
       if (text) el.textContent = text;
+    });
+    document.querySelectorAll('[data-i18n-title]').forEach(el => {
+      const text = strings[el.dataset.i18nTitle];
+      if (text) el.title = text;
     });
   }
 
@@ -199,6 +205,30 @@ class LilkaRepository {
     document.getElementById('sortSelect').value = sort;
   }
 
+  loadSortReverse() {
+    try {
+      return localStorage.getItem('lilka-sort-reverse') === '1';
+    } catch (e) {
+      return false;
+    }
+  }
+
+  setSortReverse(reverse) {
+    this.sortReverse = reverse;
+    try {
+      localStorage.setItem('lilka-sort-reverse', reverse ? '1' : '0');
+    } catch (e) {
+      // the choice then lasts for this visit only
+    }
+    this.updateSortReverseButton();
+  }
+
+  updateSortReverseButton() {
+    const button = document.getElementById('sortReverse');
+    button.textContent = this.sortReverse ? '↑' : '↓';
+    button.setAttribute('aria-pressed', String(this.sortReverse));
+  }
+
   // listing.json (one per kind, written by the mirror) has what the list
   // shows and sorts by. Null when a mirror without it is served.
   async loadListing(type) {
@@ -213,10 +243,6 @@ class LilkaRepository {
     return this.listings[type];
   }
 
-  listingEntry(type, path) {
-    return (this.listings[type] || []).find(e => e.path === path) || null;
-  }
-
   sortItems(items) {
     const name = (e) => String(this.localized(e, 'name') || e.path);
     const collator = new Intl.Collator(this.currentLang, {sensitivity: 'base'});
@@ -226,13 +252,10 @@ class LilkaRepository {
     const compare = {
       newest: byDate('added'),
       updated: byDate('updated'),
-      // Unrated last; a higher count wins a tie
-      rating: (a, b) => ((b.rating && b.rating.average) || 0) - ((a.rating && a.rating.average) || 0) ||
-          ((b.rating && b.rating.count) || 0) - ((a.rating && a.rating.count) || 0) || byName(a, b),
       name: byName,
       author: (a, b) => collator.compare(String(a.author || ''), String(b.author || '')) || byName(a, b),
     }[this.sort] || byName;
-    return [...items].sort(compare);
+    return [...items].sort(this.sortReverse ? (a, b) => compare(b, a) : compare);
   }
 
   formatDate(value) {
@@ -268,6 +291,7 @@ class LilkaRepository {
     const page = params.get('page');
     const item = params.get('item');
     if (SORTS.includes(params.get('sort'))) this.setSort(params.get('sort'));
+    if (params.has('reverse')) this.setSortReverse(params.get('reverse') === '1');
 
     if (this.isCommunityView(type)) {
       await this.community.show(type, params);
@@ -360,13 +384,16 @@ class LilkaRepository {
       params.set('type', type);
       params.set('item', itemName);
     } else if (type) {
-      // Page navigation: ?type=apps&page=1&sort=rating
+      // Page navigation: ?type=apps&page=1&sort=name&reverse=1
       params.set('type', type);
       if (page !== null && page > 0) {
         params.set('page', page);
       }
       if (this.sort !== DEFAULT_SORT && ['apps', 'wallpapers', 'mods'].includes(type)) {
         params.set('sort', this.sort);
+      }
+      if (this.sortReverse && ['apps', 'wallpapers', 'mods'].includes(type)) {
+        params.set('reverse', '1');
       }
     }
 
@@ -438,6 +465,14 @@ class LilkaRepository {
     sortSelect.addEventListener('change', () => {
       this.setSort(sortSelect.value);
       if (window.umami) window.umami.track('sort', {sort: this.sort});
+      this.currentPage = 0;
+      this.loadPage();
+    });
+    const sortReverse = document.getElementById('sortReverse');
+    this.updateSortReverseButton();
+    sortReverse.addEventListener('click', () => {
+      this.setSortReverse(!this.sortReverse);
+      if (window.umami) window.umami.track('sort', {sort: this.sort, reverse: this.sortReverse});
       this.currentPage = 0;
       this.loadPage();
     });
@@ -750,14 +785,9 @@ class LilkaRepository {
     return card;
   }
 
-  // Rating and last update, from listing.json; manifests have neither
+  // Last update, from listing.json; manifests have none
   renderCardMeta(entry) {
     const parts = [];
-    if (entry.rating && entry.rating.count) {
-      parts.push(`<span class="card-rating" title="${this.escapeHtml(String(entry.rating.count))}">★ ${
-          this.escapeHtml(String(entry.rating.average))} <span class="card-rating-count">(${
-          this.escapeHtml(String(entry.rating.count))})</span></span>`);
-    }
     // The date the list is sorted by; "updated" otherwise
     const key = this.sort === 'newest' ? 'added' : 'updated';
     const date = this.formatDate(entry[key]);
@@ -1070,12 +1100,6 @@ class LilkaRepository {
         avInfo.hidden = !avInfo.hidden;
         avInfoBtn.setAttribute('aria-expanded', String(!avInfo.hidden));
       });
-    }
-
-    // Stars and "rate this" for signed-in users (community.js)
-    if (this.community) {
-      this.community.mountRating(modalBody, this.currentType, manifestName,
-          this.listingEntry(this.currentType, manifestName));
     }
 
     // Copy-hash buttons

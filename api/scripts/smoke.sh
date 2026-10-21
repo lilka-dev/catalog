@@ -93,8 +93,6 @@ call 404 "approved file is not served to strangers" "${fan[@]}" "$API/files/smok
 call 200 "owner gets the approved file" "${user[@]}" "$API/files/smoke-hello/$version_id/hello.lua"
 call 200 "HEAD for the owner" -I "${user[@]}" "$API/files/smoke-hello/$version_id/hello.lua"
 
-call 403 "owner cannot rate own app" "${user[@]}" "${json[@]}" -X PUT "$API/apps/smoke-hello/rating" -d '{"stars":5}'
-call 200 "rate" "${fan[@]}" "${json[@]}" -X PUT "$API/apps/smoke-hello/rating" -d '{"stars":4}'
 call 201 "report" "${fan[@]}" "${json[@]}" -X POST "$API/apps/smoke-hello/reports" -d '{"reason":"smoke"}'
 call 200 "open reports" "${mod[@]}" "$API/mod/reports"
 
@@ -114,9 +112,9 @@ jq -e '."@smoke-dev"[0].path == "smoke-hello"' "$work/body" >/dev/null || { echo
 call 404 "catalog unknown kind" "${mirror[@]}" "$API/catalog/games/index_0.json"
 call 401 "listing.json needs the mirror secret" "$API/catalog/apps/listing.json"
 call 200 "listing.json for the site" "${mirror[@]}" "$API/catalog/apps/listing.json"
-jq -e '.items[] | select(.path == "smoke-hello") | (.added != null) and (.updated != null) and .rating.average == 4 and .rating.count == 1 and .author == "@smoke-dev"' \
+jq -e '.items[] | select(.path == "smoke-hello") | (.added != null) and (.updated != null) and .author == "@smoke-dev"' \
     "$work/body" >/dev/null && li=ok || li="$(jq -c '.items[] | select(.path == "smoke-hello")' "$work/body")"
-check "listing has dates, rating and author" ok "$li"
+check "listing has dates and author" ok "$li"
 pub=$(npx wrangler d1 execute lilka-catalog --local --json --command "SELECT published_at FROM apps WHERE slug = 'smoke-hello'" 2>/dev/null | jq -r '.[0].results[0].published_at')
 check "published_at set on first approval" ok "$([ -n "$pub" ] && [ "$pub" != null ] && echo ok || echo missing)"
 

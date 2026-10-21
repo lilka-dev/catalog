@@ -48,7 +48,7 @@ scripts/mirror_api.py  копіює каталог з API на Pages для пр
                     статичне дзеркало <API>/catalog для пристроїв Keira
 
  lilka-catalog-api (Cloudflare)
-   Worker + D1 + R2  застосунки, версії, файли, користувачі, оцінки, модерація
+   Worker + D1 + R2  застосунки, версії, файли, користувачі, модерація
    GitHub Actions    ClamAV, icon_min, стиснення зображень, package.zip
 ```
 

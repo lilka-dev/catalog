@@ -29,7 +29,6 @@ interface CatalogRow extends AppRow {
     v_id: number;
     published_at: string | null;
     approved_at: string | null;
-    rating_sum: number | null;
     keira_version: string | null;
     entry_type: string | null;
     entry_file: string | null;
@@ -61,11 +60,10 @@ async function published(env: Env, kind?: AppRow['kind'], slug?: string): Promis
         `SELECT a.*, u.login AS owner_login, u.avatar_url AS owner_avatar,
                 v.id AS v_id, v.keira_version, v.entry_type, v.entry_file, v.files, v.files_meta, v.icon, v.icon_min,
                 v.screenshots, v.changelog, v.changelog_en, v.package, v.security, v.storage_prefix,
-                v.approved_at, COALESCE(r.n, 0) AS rating_count, r.total AS rating_sum
+                v.approved_at
            FROM apps a
            JOIN users u ON u.id = a.owner_id
            JOIN versions v ON v.id = a.latest_version_id
-           LEFT JOIN (SELECT app_id, COUNT(*) AS n, SUM(stars) AS total FROM ratings GROUP BY app_id) r ON r.app_id = a.id
           WHERE ${where.join(' AND ')}
           ORDER BY a.slug COLLATE BINARY`,
     )
@@ -231,7 +229,7 @@ function authorsDoc(rows: CatalogRow[]): Record<string, unknown[]> {
  * listing.json: everything the website's list needs for one kind, in one file.
  *
  * Not part of the old build.py layout and not read by Keira, so it can carry
- * what the catalog list sorts by (dates, rating) without touching the
+ * what the catalog list sorts by (dates, author) without touching the
  * manifests devices parse. It also turns a list page from 1 index plus 12
  * manifests into one request.
  */
@@ -247,10 +245,6 @@ function listingDoc(rows: CatalogRow[]) {
                 icon: row.icon ?? '',
                 added: row.published_at ?? row.approved_at,
                 updated: row.approved_at,
-                rating: {
-                    average: row.rating_count ? Math.round((row.rating_sum! / row.rating_count) * 10) / 10 : null,
-                    count: row.rating_count,
-                },
             };
             if (Object.keys(loc).length) {
                 entry.languages = Object.keys(loc);
