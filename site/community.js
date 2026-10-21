@@ -89,6 +89,9 @@ const COMMUNITY_STRINGS = {
     'resolve': 'Закрити скаргу',
     'ban': 'Заблокувати автора',
     'confirm-ban': 'Заблокувати {login}? Усі його додатки буде приховано.',
+    'hand-over': 'Передати автору',
+    'hand-over-prompt': 'GitHub-логін автора (він має хоча б раз увійти на сайт):',
+    'unclaimed': 'ще не передано автору',
     'view': 'Переглянути',
     'download': 'Завантажити',
     'by': 'від',
@@ -187,6 +190,9 @@ const COMMUNITY_STRINGS = {
     'resolve': 'Resolve',
     'ban': 'Ban author',
     'confirm-ban': 'Ban {login}? All of their apps will be hidden.',
+    'hand-over': 'Hand over to author',
+    'hand-over-prompt': 'GitHub login of the author (they must have signed in once):',
+    'unclaimed': 'not handed over yet',
     'view': 'View',
     'download': 'Download',
     'by': 'by',
@@ -1013,17 +1019,22 @@ class CommunityUI {
     const canApprove = version.status === 'pending_review';
     const canReject = version.status !== 'approved';
     return `
-      <div class="community-card" data-version="${version.id}" data-owner="${this.esc(app.owner)}">
+      <div class="community-card" data-version="${version.id}" data-owner="${this.esc(app.owner)}" data-slug="${this.esc(app.slug)}" data-author="${this.esc(app.author || '')}">
         <div class="community-card-head">
           <div>
             <h3>${this.esc(name)}</h3>
             <code class="community-slug">${this.esc(app.slug)}</code>
-            <span class="community-hint">${this.esc(app.kind)} · ${this.esc(this.t('by'))} ${this.esc(app.owner)}</span>
+            <span class="community-hint">${this.esc(app.kind)} · ${this.esc(this.t('by'))} ${this.esc(app.author || app.owner)}${
+                app.unclaimed ? ` · ${this.esc(this.t('unclaimed'))}` : ''}</span>
           </div>
           <div class="community-actions">
             ${canApprove ? `<button class="download-btn" data-mod="approve">${this.esc(this.t('approve'))}</button>` : ''}
             ${canReject ? `<button class="btn-sm" data-mod="reject">${this.esc(this.t('reject'))}</button>` : ''}
-            <button class="btn-sm danger" data-mod="ban">${this.esc(this.t('ban'))}</button>
+            ${app.unclaimed ?
+                // Imported apps are owned by the catalog account: banning it
+                // would hide all of them, so the action here is the hand-over
+                `<button class="btn-sm" data-mod="hand-over">${this.esc(this.t('hand-over'))}</button>` :
+                `<button class="btn-sm danger" data-mod="ban">${this.esc(this.t('ban'))}</button>`}
           </div>
         </div>
         ${this.renderVersion(version)}
@@ -1046,6 +1057,11 @@ class CommunityUI {
         const note = prompt(this.t('reject-reason'), '');
         if (!note) return;
         await this.request('POST', `/mod/versions/${id}/reject`, {note});
+      }
+      if (btn.dataset.mod === 'hand-over') {
+        const login = prompt(this.t('hand-over-prompt'), card.dataset.author.replace(/^@/, ''));
+        if (!login) return;
+        await this.request('PATCH', `/apps/${encodeURIComponent(card.dataset.slug)}`, {owner: login.trim()});
       }
       if (btn.dataset.mod === 'ban') {
         const login = card.dataset.owner;
