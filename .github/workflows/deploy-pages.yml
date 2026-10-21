@@ -8,6 +8,10 @@ on:
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
+  # lilka-catalog-api asks for a rebuild after a community app is approved or hidden
+  repository_dispatch:
+    types: [api-sync]
+
 # Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
 permissions:
   contents: read
@@ -53,6 +57,12 @@ jobs:
           done
           clamdscan --version
 
+      - name: Pull community apps
+        # Repository variable COMMUNITY_API_URL; without it the step does nothing
+        env:
+          COMMUNITY_API_URL: ${{ vars.COMMUNITY_API_URL }}
+        run: python3 scripts/sync_community.py
+
       - name: Build JSON files from manifests
         run: |
           python3 build.py --build --antivirus
@@ -62,6 +72,7 @@ jobs:
           cp site/index.html build/
           cp site/styles.css build/
           cp site/script.js build/
+          cp site/community.js build/
           cp README.md build/
           cp README.uk.md build/
 

@@ -45,6 +45,9 @@ class LilkaRepository {
     this.supportedLanguages = ['uk', 'en'];
     this.defaultLanguage = 'uk';
     this.currentLang = this.loadLanguage();
+    // community.js is optional: without it the catalog stays read-only
+    this.community =
+        typeof CommunityUI !== 'undefined' ? new CommunityUI(this) : null;
     this.init();
   }
 
@@ -97,7 +100,10 @@ class LilkaRepository {
 
   // Re-render currently visible content using the selected language
   refreshLocalizedContent() {
-    if (this.currentType === 'authors') {
+    if (this.community) this.community.renderAccount();
+    if (this.isCommunityView(this.currentType)) {
+      this.community.refresh();
+    } else if (this.currentType === 'authors') {
       this.showAuthors();
     } else if (this.currentType === 'docs') {
       this.showDocumentation();
@@ -128,6 +134,10 @@ class LilkaRepository {
     return item ? item[field] : undefined;
   }
 
+  isCommunityView(type) {
+    return !!this.community && this.community.handles(type);
+  }
+
   init() {
     this.setupEventListeners();
     this.setupLightboxListeners();
@@ -140,6 +150,11 @@ class LilkaRepository {
     const type = params.get('type');
     const page = params.get('page');
     const item = params.get('item');
+
+    if (this.isCommunityView(type)) {
+      await this.community.show(type, params);
+      return;
+    }
 
     // Handle direct item link: ?type=apps&item=ble.app
     if (item && type) {
@@ -222,7 +237,8 @@ class LilkaRepository {
       btn.classList.toggle('active', btn.dataset.type === type);
     });
 
-    const isList = !['docs', 'authors', 'examples'].includes(type);
+    const community = this.isCommunityView(type);
+    const isList = !community && !['docs', 'authors', 'examples'].includes(type);
     document.getElementById('content').style.display =
         isList ? 'block' : 'none';
     document.getElementById('loading').style.display = 'none';
@@ -231,6 +247,8 @@ class LilkaRepository {
       document.getElementById(id).style.display =
           id === type ? 'block' : 'none';
     }
+    document.getElementById('community').style.display =
+        community ? 'block' : 'none';
   }
 
   async openDirectItem(type, itemName) {
@@ -321,7 +339,9 @@ class LilkaRepository {
         if (window.umami) {
           window.umami.track('tab-navigation', {tab: type});
         }
-        if (type === 'docs') {
+        if (this.isCommunityView(type)) {
+          this.community.show(type);
+        } else if (type === 'docs') {
           this.showDocumentation();
         } else if (type === 'authors') {
           this.showAuthors();
@@ -867,7 +887,8 @@ class LilkaRepository {
 
   async loadPage() {
     // Don't load if we're on docs/examples tab
-    if (this.currentType === 'docs' || this.currentType === 'examples') {
+    if (this.currentType === 'docs' || this.currentType === 'examples' ||
+        this.isCommunityView(this.currentType)) {
       return;
     }
 

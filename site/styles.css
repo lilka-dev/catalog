@@ -1693,3 +1693,322 @@ footer {
     outline: 2px solid var(--primary-color);
     outline-offset: 2px;
 }
+
+/* Community: sign-in, publishing, my apps, moderation (community.js) */
+.tab-button[hidden],
+.account[hidden],
+.community-content [hidden] {
+    display: none !important;
+}
+
+.tab-button.community-tab {
+    white-space: nowrap;
+}
+
+.account {
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.2rem;
+    border-radius: 999px;
+    background: var(--primary-glow);
+    border: 1px solid var(--border-solid);
+}
+
+.account-user {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding-left: 0.2rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.account-avatar {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+}
+
+@media (max-width: 600px) {
+    .account {
+        position: static;
+        margin: 0.75rem 0.5rem 0 0;
+    }
+}
+
+.community-content {
+    padding: 2rem 0;
+}
+
+.community-title {
+    margin: 0 0 1rem;
+}
+
+.community-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.75rem;
+    max-width: 960px;
+    margin: 0 auto;
+}
+
+.community-center {
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+}
+
+.community-hint {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+}
+
+.community-form {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin-top: 1.25rem;
+}
+
+.community-form fieldset {
+    border: 1px solid var(--border-solid);
+    border-radius: var(--radius-sm);
+    padding: 1rem 1.25rem 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.community-form legend {
+    padding: 0 0.5rem;
+    font-weight: 700;
+    color: var(--accent);
+}
+
+.form-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1rem;
+}
+
+.form-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    min-width: 0;
+}
+
+.form-label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.form-field input,
+.form-field select,
+.form-field textarea {
+    font: inherit;
+    font-size: 0.9rem;
+    color: var(--text-primary);
+    background: var(--background);
+    border: 1px solid var(--border-solid);
+    border-radius: var(--radius-xs);
+    padding: 0.5rem 0.65rem;
+    min-width: 0;
+}
+
+.form-field textarea {
+    resize: vertical;
+}
+
+.form-field input:focus,
+.form-field select:focus,
+.form-field textarea:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px var(--primary-glow);
+}
+
+.form-error {
+    color: var(--error);
+    background: rgba(248, 113, 113, 0.1);
+    border: 1px solid rgba(248, 113, 113, 0.35);
+    border-radius: var(--radius-xs);
+    padding: 0.6rem 0.8rem;
+}
+
+.form-actions {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.community-content button.download-btn {
+    border: none;
+    cursor: pointer;
+    font: inherit;
+    font-weight: 600;
+}
+
+.community-content button.download-btn:disabled {
+    opacity: 0.5;
+    cursor: wait;
+}
+
+.community-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin-bottom: 2rem;
+}
+
+.community-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 1.25rem;
+}
+
+.community-card h3 {
+    margin: 0 0 0.25rem;
+}
+
+.community-card h4 {
+    margin: 1rem 0 0.5rem;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.community-card-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.community-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.community-slug {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    margin-right: 0.5rem;
+}
+
+.community-version {
+    border-top: 1px solid var(--border-solid);
+    padding: 0.75rem 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.community-version-head {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+}
+
+.community-note {
+    background: var(--background);
+    border-left: 3px solid var(--warning);
+    border-radius: var(--radius-xs);
+    padding: 0.5rem 0.75rem;
+    font-size: 0.85rem;
+    white-space: pre-wrap;
+    overflow-x: auto;
+}
+
+.community-files {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.community-file {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.82rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    background: var(--background);
+    border: 1px solid var(--border-solid);
+    border-radius: var(--radius-xs);
+    padding: 0.2rem 0.25rem 0.2rem 0.5rem;
+}
+
+.community-file .btn-sm {
+    padding: 0.15rem 0.45rem;
+}
+
+.community-preview {
+    max-height: 480px;
+    overflow: auto;
+    border-radius: var(--radius-xs);
+    background: var(--background);
+}
+
+.community-preview pre {
+    margin: 0;
+    padding: 0.75rem;
+    font-size: 0.8rem;
+}
+
+.community-preview img {
+    max-width: 100%;
+    display: block;
+    image-rendering: pixelated;
+}
+
+.community-filter {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+}
+
+.community-filter .page-btn {
+    padding: 0.4rem 0.85rem;
+}
+
+.btn-sm.danger:hover {
+    border-color: var(--error);
+    color: var(--error);
+    background: rgba(248, 113, 113, 0.1);
+}
+
+.status-badge {
+    display: inline-block;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    padding: 0.1rem 0.55rem;
+    border-radius: 999px;
+    border: 1px solid currentColor;
+    color: var(--text-muted);
+    vertical-align: middle;
+}
+
+.status-published,
+.status-approved { color: var(--success); }
+.status-pending_review { color: var(--warning); }
+.status-pending_scan { color: var(--primary-color); }
+.status-rejected,
+.status-infected { color: var(--error); }
