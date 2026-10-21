@@ -22,6 +22,7 @@ after signing in as a moderator.
 import argparse
 import json
 import os
+import re
 import sys
 
 import requests
@@ -76,9 +77,18 @@ def origin_of(location):
     return location.get("origin") if isinstance(location, dict) else location
 
 
-def load_file(folder, location):
+# Manifests that link into the catalog repo itself; those files left `main`
+# with this import, so they are read from the checkout being imported
+SELF_URL = re.compile(r"^https://raw\.githubusercontent\.com/lilka-dev/catalog/(?:refs/heads/)?[^/]+/(.+)$")
+
+
+def load_file(folder, location, root=None):
     """(name, bytes) from a URL or a path next to the manifest; the name is the
     last URL segment exactly as build.py's download_file saved it."""
+    own = SELF_URL.match(location) if root else None
+    if own and os.path.isfile(os.path.join(root, own.group(1))):
+        with open(os.path.join(root, own.group(1)), "rb") as f:
+            return location.split("/")[-1], f.read()
     if location.startswith(("http://", "https://")):
         response = requests.get(location, timeout=120)
         response.raise_for_status()
@@ -130,7 +140,7 @@ def build_item(root, dirname, name):
         if not entry or not origin_of(entry.get("location")):
             return None, "no entry file"
         fields["entry_type"] = entry.get("type", "")
-        files.append(("entry", load_file(folder, origin_of(entry["location"]))))
+        files.append(("entry", load_file(folder, origin_of(entry["location"]), root)))
         extra = manifest.get("files") or []
     else:
         extra = manifest.get("modfiles") or []
@@ -138,7 +148,7 @@ def build_item(root, dirname, name):
     for item in extra:
         location = origin_of(item.get("location")) if isinstance(item, dict) else None
         if location:
-            fname, data = load_file(folder, location)
+            fname, data = load_file(folder, location, root)
             files.append(("files", (fname, data)))
             # build.py replaced `location` in place, keeping `type`/`description` and their order
             described.append({k: (fname if k == "location" else v) for k, v in item.items()})
