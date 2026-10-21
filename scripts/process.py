@@ -282,8 +282,11 @@ def report(session, api, version_id, fields, files):
 def main():
     api = os.environ.get("API_URL", "").rstrip("/")
     secret = os.environ.get("SCAN_SECRET", "")
-    if not api or not secret:
-        sys.exit("API_URL and SCAN_SECRET are required")
+    missing = [name for name, value in (("API_URL", api), ("SCAN_SECRET", secret)) if not value]
+    if missing:
+        # In Actions: Settings -> Secrets and variables -> Actions; SCAN_SECRET
+        # must be a repository *secret* with the same value as the Worker's
+        sys.exit(f"missing {', '.join(missing)}")
     session = requests.Session()
     session.headers["Authorization"] = f"Bearer {secret}"
 

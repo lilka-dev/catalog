@@ -44,6 +44,7 @@ jobs:
 
       - name: Process pending versions
         env:
-          API_URL: ${{ vars.API_URL }}
+          # Same default as the catalog's deploy workflow; set the variable only to point elsewhere
+          API_URL: ${{ vars.API_URL || 'https://lilka-catalog-api.black-ghost-ukraine.workers.dev' }}
           SCAN_SECRET: ${{ secrets.SCAN_SECRET }}
         run: python3 scripts/process.py
