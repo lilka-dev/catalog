@@ -167,6 +167,14 @@ class LilkaRepository {
   }
 
   init() {
+    // Hides icons and screenshots that fail to load. One listener instead of
+    // inline onerror attributes, which the Content-Security-Policy forbids;
+    // `error` does not bubble, hence the capture phase
+    document.addEventListener('error', (e) => {
+      if (e.target instanceof HTMLImageElement && e.target.hasAttribute('data-hide-broken')) {
+        e.target.style.display = 'none';
+      }
+    }, true);
     this.setupEventListeners();
     this.setupLightboxListeners();
     this.updateLangSwitcher();
@@ -871,7 +879,7 @@ class LilkaRepository {
         if (item.icon) {
           html += `<img src="${iconPath}" alt="${
               this.escapeHtml(
-                  itemName)}" class="icon" onerror="this.style.display='none'">`;
+                  itemName)}" class="icon" data-hide-broken>`;
         }
         html += `<h3>${this.escapeHtml(itemName)}</h3>`;
         html += `<span class="author-item-type type-${item.type}">${
@@ -904,7 +912,7 @@ class LilkaRepository {
         throw new Error('Failed to load documentation');
       }
       const markdown = await response.text();
-      docsContainer.innerHTML = marked.parse(markdown);
+      docsContainer.innerHTML = this.renderMarkdown(markdown);
     } catch (error) {
       docsContainer.innerHTML =
           `<p style="color: var(--error);">Failed to load documentation: ${
@@ -991,7 +999,7 @@ class LilkaRepository {
         manifest.icon ?
             `<img src="${iconPath}" alt="${
                 this.escapeHtml(
-                    cardName)}" class="icon" onerror="this.style.display='none'">` :
+                    cardName)}" class="icon" data-hide-broken>` :
             ''}
             <h3>${this.escapeHtml(cardName)}</h3>
             <div class="author"><a href="?type=authors&author=${
@@ -1224,7 +1232,7 @@ class LilkaRepository {
             .map(
                 (s, index) => `<img src="${basePath}/static/${
                     s}" alt="Screenshot" class="screenshot-thumb" data-index="${
-                    index}" onerror="this.style.display='none'">`)
+                    index}" data-hide-broken>`)
             .join('')}
         </div>
       </div>`;
@@ -1235,7 +1243,7 @@ class LilkaRepository {
     return `
       <div class="modal-section">
         <h3>${title}</h3>
-        <div class="markdown-content">${marked.parse(text)}</div>
+        <div class="markdown-content">${this.renderMarkdown(text)}</div>
       </div>`;
   }
 
@@ -1280,7 +1288,7 @@ class LilkaRepository {
         manifest.icon ?
             `<img src="${basePath}/static/${manifest.icon}" alt="${
                 this.escapeHtml(
-                    modalName)}" class="modal-icon" onerror="this.style.display='none'">` :
+                    modalName)}" class="modal-icon" data-hide-broken>` :
             ''}
         ${this.renderScreenshotsSection(manifest, basePath)}
         ${
@@ -1478,11 +1486,22 @@ class LilkaRepository {
     document.getElementById('error').style.display = 'none';
   }
 
+  // Also used inside attribute values (alt, title, data-*), so quotes are
+  // escaped too: an app name like `x" onerror="...` must stay text
   escapeHtml(text) {
-    if (!text) return '';
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+    if (text === null || text === undefined || text === '') return '';
+    return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+  }
+
+  // Descriptions and changelogs are written by app authors; marked passes raw
+  // HTML through, so its output is sanitized before it reaches the page
+  renderMarkdown(text) {
+    return DOMPurify.sanitize(marked.parse(text));
   }
 
   authorSlug(author) {

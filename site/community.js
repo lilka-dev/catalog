@@ -220,6 +220,9 @@ const MAX_FILE_BYTES = 8 * 1024 * 1024;
 const MAX_UPLOAD_BYTES = 24 * 1024 * 1024;
 const MAX_SCREENSHOTS = 6;
 const TOKEN_KEY = 'lilka-token';
+const LOGIN_STARTED_KEY = 'lilka-login-started';
+// GitHub's consent page plus a slow network; the API's OAuth state lives 10 minutes
+const LOGIN_WINDOW_MS = 10 * 60 * 1000;
 
 function entryTypeOf(name) {
   const lower = name.toLowerCase();
@@ -286,9 +289,22 @@ class CommunityUI {
     // server or the analytics script's page URL
     const match = location.hash.match(/lilka_token=([^&]+)/);
     if (match) {
-      this.saveToken(decodeURIComponent(match[1]));
       history.replaceState(history.state, '', location.pathname + location.search);
-    } else {
+      // Only a sign-in started in this tab may set the session; otherwise a
+      // link carrying someone else's token would quietly sign the visitor in
+      // as that person, and their uploads would land in that account
+      let started = 0;
+      try {
+        started = Number(sessionStorage.getItem(LOGIN_STARTED_KEY)) || 0;
+        sessionStorage.removeItem(LOGIN_STARTED_KEY);
+      } catch (e) {
+        started = 0;
+      }
+      if (Date.now() - started < LOGIN_WINDOW_MS) {
+        this.saveToken(decodeURIComponent(match[1]));
+      }
+    }
+    if (!this.token) {
       try {
         this.token = localStorage.getItem(TOKEN_KEY);
       } catch (e) {
@@ -323,6 +339,11 @@ class CommunityUI {
 
   signIn() {
     if (window.umami) window.umami.track('community-sign-in');
+    try {
+      sessionStorage.setItem(LOGIN_STARTED_KEY, String(Date.now()));
+    } catch (e) {
+      // Without sessionStorage the returned token is ignored; nothing else to do
+    }
     location.href = `${this.api}/auth/login?return=${
         encodeURIComponent(location.href)}`;
   }
