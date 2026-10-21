@@ -60,7 +60,7 @@ jobs:
       - name: Copy static site files
         if: steps.mirror.outputs.changed != 'false'
         run: |
-          cp site/index.html site/404.html site/styles.css site/script.js site/community.js build/
+          cp site/index.html site/404.html site/styles.css site/script.js site/community.js site/favicon.svg build/
 
       - name: Setup Pages
         if: steps.mirror.outputs.changed != 'false'
