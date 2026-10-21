@@ -10,7 +10,7 @@ const UI_STRINGS = {
     'tab-docs': 'Документація',
     'loading': 'Завантаження...',
     'av-info-title': 'Як ми перевіряємо файли',
-    'av-info-1': 'Кожен файл для завантаження (включно з package.zip) перевіряється антивірусом ClamAV під час кожної збірки каталогу в GitHub Actions.',
+    'av-info-1': 'Кожен файл для завантаження (включно з package.zip) перевіряється антивірусом ClamAV у GitHub Actions одразу після завантаження в каталог, ще до публікації.',
     'av-info-2': 'Перед скануванням бази сигнатур оновлюються до найновіших (freshclam).',
     'av-info-3': 'Вміст архівів також сканується.',
     'av-info-4': 'Для кожного файлу публікуються контрольні суми SHA-256 та MD5 — порівняйте їх із завантаженим файлом, щоб переконатися, що його не змінено.',
@@ -26,7 +26,7 @@ const UI_STRINGS = {
     'tab-docs': 'Documentation',
     'loading': 'Loading...',
     'av-info-title': 'How we check files',
-    'av-info-1': 'Every downloadable file (including package.zip) is scanned with the ClamAV antivirus on each catalog build in GitHub Actions.',
+    'av-info-1': 'Every downloadable file (including package.zip) is scanned with the ClamAV antivirus in GitHub Actions right after it is uploaded, before it is published.',
     'av-info-2': 'Virus signature databases are updated to the latest version (freshclam) right before scanning.',
     'av-info-3': 'Contents of archives are scanned too.',
     'av-info-4': 'SHA-256 and MD5 checksums are published for every file — compare them with your download to make sure it was not modified.',
@@ -45,6 +45,7 @@ class LilkaRepository {
     this.supportedLanguages = ['uk', 'en'];
     this.defaultLanguage = 'uk';
     this.currentLang = this.loadLanguage();
+    this.dataBase = this.readDataBase();
     // community.js is optional: without it the catalog stays read-only
     this.community =
         typeof CommunityUI !== 'undefined' ? new CommunityUI(this) : null;
@@ -132,6 +133,33 @@ class LilkaRepository {
       }
     }
     return item ? item[field] : undefined;
+  }
+
+  // The catalog lives in lilka-catalog-api under /catalog, in the same
+  // layout the static site used to have. Without an API address the site
+  // reads the Pages mirror next to it instead.
+  readDataBase() {
+    let api = '';
+    try {
+      api = localStorage.getItem('lilka-api-url') || '';
+    } catch (e) {
+      api = '';
+    }
+    if (!api) {
+      const meta = document.querySelector('meta[name="lilka-api"]');
+      api = meta ? meta.content.trim() : '';
+    }
+    return api ? `${api.replace(/\/$/, '')}/catalog/` : '';
+  }
+
+  dataUrl(path) {
+    return this.dataBase + path;
+  }
+
+  // Cross-origin links ignore the `download` attribute; the API sends the
+  // attachment header itself when asked
+  downloadUrl(url) {
+    return this.dataBase ? `${url}?download` : url;
   }
 
   isCommunityView(type) {
@@ -254,7 +282,7 @@ class LilkaRepository {
   async openDirectItem(type, itemName) {
     try {
       const manifestPath = `${type}/${itemName}/index.json`;
-      const response = await fetch(manifestPath);
+      const response = await fetch(this.dataUrl(manifestPath));
 
       if (!response.ok) {
         throw new Error(`Item not found: ${itemName}`);
@@ -762,7 +790,7 @@ class LilkaRepository {
     this.updateURL('authors');
 
     try {
-      const response = await fetch('authors.json');
+      const response = await fetch(this.dataUrl('authors.json'));
       if (!response.ok) {
         throw new Error('Failed to load authors data');
       }
@@ -776,7 +804,7 @@ class LilkaRepository {
           const itemPath = card.dataset.itemPath;
           try {
             const manifestPath = `${itemType}/${itemPath}/index.json`;
-            const resp = await fetch(manifestPath);
+            const resp = await fetch(this.dataUrl(manifestPath));
             if (!resp.ok) throw new Error(`Item not found: ${itemPath}`);
             const manifest = await resp.json();
             this.currentType = itemType;
@@ -833,7 +861,7 @@ class LilkaRepository {
 
       for (const item of items) {
         const iconPath =
-            item.icon ? `${item.type}/${item.path}/static/${item.icon}` : '';
+            item.icon ? this.dataUrl(`${item.type}/${item.path}/static/${item.icon}`) : '';
         const typeLabel =
             {apps: 'App', wallpapers: 'Wallpaper', mods: 'Mod'}[item.type];
         const itemName = this.localized(item, 'name');
@@ -897,7 +925,7 @@ class LilkaRepository {
 
     try {
       const indexPath = `${this.currentType}/index_${this.currentPage}.json`;
-      const response = await fetch(indexPath);
+      const response = await fetch(this.dataUrl(indexPath));
 
       if (!response.ok) {
         throw new Error(`Failed to load ${indexPath}: ${response.status}`);
@@ -928,7 +956,7 @@ class LilkaRepository {
     const manifests = await Promise.all(this.manifests.map(async (name) => {
       const manifestPath = `${this.currentType}/${name}/index.json`;
       try {
-        const response = await fetch(manifestPath);
+        const response = await fetch(this.dataUrl(manifestPath));
         if (!response.ok) {
           console.warn(`Failed to load ${manifestPath}`);
           return null;
@@ -954,7 +982,7 @@ class LilkaRepository {
 
     // Build icon path without duplicating type
     const iconPath =
-        `${this.currentType}/${manifestName}/static/${manifest.icon}`;
+        this.dataUrl(`${this.currentType}/${manifestName}/static/${manifest.icon}`);
 
     const cardName = this.localized(manifest, 'name');
     const cardShortDesc = this.localized(manifest, 'short_description') || '';
@@ -1007,8 +1035,8 @@ class LilkaRepository {
       <div class="file-item">
         <p><strong>${this.escapeHtml(file.type || 'Unknown')}:</strong> ${
         this.escapeHtml(file.location)}</p>
-        <a href="${basePath}/static/${
-        file.location}" download class="download-btn-small" data-umami-event="${
+        <a href="${this.downloadUrl(`${basePath}/static/${
+        file.location}`)}" download class="download-btn-small" data-umami-event="${
         event}" data-umami-event-${itemAttr}="${
         this.escapeHtml(itemName)}" data-umami-event-type="${
         this.escapeHtml(file.type)}">⬇️ Download</a>
@@ -1030,9 +1058,8 @@ class LilkaRepository {
           <p><strong>Type:</strong> ${
           this.escapeHtml(entryFile.type || 'N/A')}</p>
           <p><strong>File:</strong> ${this.escapeHtml(entryFile.location)}</p>
-          <a href="${basePath}/static/${
-          entryFile
-              .location}" download class="download-btn" data-umami-event="download-entry-file" data-umami-event-${
+          <a href="${this.downloadUrl(`${basePath}/static/${
+          entryFile.location}`)}" download class="download-btn" data-umami-event="download-entry-file" data-umami-event-${
           itemAttr}="${
           this.escapeHtml(manifest.name)}">⬇️ Download Entry File</a>
         </div>`;
@@ -1070,9 +1097,8 @@ class LilkaRepository {
         <div class="modal-section">
           <h3>📦 Package ZIP</h3>
           <p><strong>File:</strong> ${this.escapeHtml(manifest.package)}</p>
-          <a href="${basePath}/${
-          manifest
-              .package}" download class="download-btn" data-umami-event="download-package-zip" data-umami-event-item="${
+          <a href="${this.downloadUrl(`${basePath}/${
+          manifest.package}`)}" download class="download-btn" data-umami-event="download-package-zip" data-umami-event-item="${
           this.escapeHtml(manifest.name)}" data-umami-event-category="${
           this.currentType}">⬇️ Download ZIP</a>
         </div>`;
@@ -1235,7 +1261,7 @@ class LilkaRepository {
     const modalBody = document.getElementById('modalBody');
 
     // manifestName already includes the full path relative to type
-    const basePath = `${this.currentType}/${manifestName}`;
+    const basePath = this.dataUrl(`${this.currentType}/${manifestName}`);
 
     // Store screenshots for lightbox
     this.currentScreenshots =
