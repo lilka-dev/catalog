@@ -1879,3 +1879,7 @@ footer {
 .rating-star:disabled {
     cursor: wait;
 }
+
+.list-toolbar[hidden] {
+    display: none;
+}

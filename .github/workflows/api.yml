@@ -64,6 +64,10 @@ jobs:
     timeout-minutes: 15
     # Repository settings can require a reviewer for this environment
     environment: production
+    permissions:
+      contents: read
+      # Only to start the Pages deploy below (workflow_dispatch)
+      actions: write
     env:
       WRANGLER_SEND_METRICS: "false"
     steps:
@@ -102,3 +106,13 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: npx wrangler deploy
+
+      # When one push changes the site and the API, both workflows start at
+      # once and the mirror can read the old Worker (that is how listing.json
+      # was missing after the sorting release). Rebuilding the mirror once the
+      # new Worker is live makes the order right; an unchanged catalog costs
+      # one request and reuses every file.
+      - name: Rebuild the Pages mirror from the new Worker
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run deploy-pages.yml --repo "$GITHUB_REPOSITORY" --ref main
