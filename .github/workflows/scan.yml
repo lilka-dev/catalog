@@ -1,0 +1,55 @@
+name: Scan uploads
+
+# The Worker dispatches `scan-version` right after an upload. The schedule is a
+# safety net for dispatches that were lost (no token, GitHub hiccup).
+on:
+  repository_dispatch:
+    types: [scan-version]
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: scan
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    env:
+      API_URL: ${{ vars.API_URL }}
+      SCAN_SECRET: ${{ secrets.SCAN_SECRET }}
+    steps:
+      - name: Install ClamAV
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clamav jq
+          sudo systemctl stop clamav-freshclam || true
+          sudo freshclam
+
+      - name: Scan pending versions
+        run: |
+          set -euo pipefail
+          auth=(-H "Authorization: Bearer $SCAN_SECRET")
+          ids=$(curl -fsS "${auth[@]}" "$API_URL/scan/pending" | jq -r '.ids[]')
+          for id in $ids; do
+            echo "::group::version $id"
+            dir=$(mktemp -d)
+            curl -fsS "${auth[@]}" "$API_URL/scan/versions/$id" > "$dir/version.json"
+            jq -r '.files[] | "\(.name)\t\(.url)"' "$dir/version.json" | while IFS=$'\t' read -r name url; do
+              curl -fsS "${auth[@]}" -o "$dir/files/$name" --create-dirs "$url"
+            done
+            # Archives are unpacked by clamscan itself (--scan-archive is on by default)
+            if report=$(clamscan --recursive --infected --no-summary "$dir/files" 2>&1); then
+              result=clean; detail="ClamAV $(clamscan --version)"
+            elif [ $? -eq 1 ]; then
+              result=infected; detail="$report"
+            else
+              echo "clamscan failed for $id, leaving it pending"; echo "$report"; echo "::endgroup::"; continue
+            fi
+            jq -n --arg r "$result" --arg d "$detail" '{result: $r, detail: $d}' |
+              curl -fsS "${auth[@]}" -H 'Content-Type: application/json' -X POST --data @- "$API_URL/scan/versions/$id"
+            echo "version $id: $result"
+            rm -rf "$dir"
+            echo "::endgroup::"
+          done
