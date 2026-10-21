@@ -6,18 +6,56 @@ them. It runs on Cloudflare: a Worker for the API, D1 (SQLite) for data, R2 for
 files. The [catalog repo](https://github.com/lilka-dev/catalog) is only the
 website and a static mirror for devices.
 
+```mermaid
+flowchart LR
+    subgraph Users
+        V["Visitors<br/>(browser)"]
+        A["Authors and moderators<br/>(signed in)"]
+        K["Lilka devices<br/>(Keira lilcatalog)"]
+    end
+
+    subgraph Pages["catalog.lilka.dev · GitHub Pages (repo lilka-dev/catalog)"]
+        SITE["site/<br/>index.html · script.js · community.js"]
+        MIRROR["Static mirror<br/>apps/ wallpapers/ mods/<br/>authors.json · mirror-state.json"]
+    end
+
+    subgraph CF["lilka-catalog-api · Cloudflare Worker (this repo)"]
+        API["API routes<br/>/auth · /apps · /mod · /scan"]
+        CAT["/catalog/…<br/>/catalog/export.json"]
+        D1[("D1<br/>users · sessions · apps<br/>versions · ratings · reports")]
+        R2[("R2<br/>&lt;id&gt;-&lt;name&gt;/v/&lt;version&gt;/&lt;file&gt;")]
+    end
+
+    subgraph GH["GitHub Actions"]
+        PROC["Process uploads<br/>(this repo, every 6 h)<br/>ClamAV · icon_min · package.zip"]
+        DEPLOY["Build and Deploy to Pages<br/>(catalog repo: push, hourly, api-sync)<br/>scripts/mirror_api.py"]
+    end
+
+    GITHUB["GitHub OAuth<br/>(sign-in only)"]
+
+    V -->|"browse: 0 Worker requests"| SITE
+    SITE -->|"catalog data"| MIRROR
+    K -->|"index_N.json, index.json, static/*"| MIRROR
+
+    A -->|"Publish · My apps · Moderation"| SITE
+    SITE -->|"community.js, Bearer token"| API
+    API <-->|"sign in"| GITHUB
+    API --- D1
+    API --- R2
+    CAT --- D1
+    CAT --- R2
+
+    PROC -->|"SCAN_SECRET: fetch pending files,<br/>send verdict + artifacts"| API
+    DEPLOY -->|"1 request: export.json"| CAT
+    DEPLOY -->|"unchanged files copied from Pages"| MIRROR
+    DEPLOY -->|"deploy"| Pages
+    API -.->|"api-sync dispatch<br/>(needs GITHUB_DISPATCH_TOKEN)"| DEPLOY
 ```
- catalog site / web IDE ──fetch + Bearer──▶ Worker ── D1 (users, apps, versions, ratings, reports)
-                                              │  └── R2 (<app id>-<slug>/v/<version>/<file>)
-             GitHub OAuth (sign-in only) ◀────┤
-                                              │ repository_dispatch "scan-version"
-                                              ▼
-     GitHub Action scripts/process.py: ClamAV, images, icon_min, package.zip ──▶ POST /scan/versions/:id
-                                              │
-                       moderator approves ────┤ repository_dispatch "api-sync"
-                                              ▼
-              catalog repo: scripts/mirror_api.py copies /catalog ──▶ GitHub Pages ──▶ Keira
-```
+
+Every request that reaches the Worker counts against its daily limit, so
+traffic that does not need an account never does: visitors and Lilka devices
+read the Pages mirror, and the mirror itself costs one request per run
+(`/catalog/export.json`) plus the files of items that changed.
 
 `/catalog/...` serves exactly the files the old repo's `build.py` wrote to
 Pages — same paths, same JSON fields in the same order, the same `icon_min.bin`
@@ -39,6 +77,76 @@ mirror is a plain copy of that tree.
    of `/catalog` at once and out of the mirror on its next build.
 
 Imported apps (below) skip step 4: they were reviewed as repo pull requests.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Author
+    participant Site as catalog.lilka.dev (site)
+    participant API as lilka-catalog-api
+    participant R2 as R2 files
+    participant Proc as Process uploads (Action)
+    actor Mod as Moderator
+    participant Mirror as Build and Deploy (Action)
+    participant Pages as Pages mirror
+    participant Lilka as Lilka (Keira)
+
+    Author->>Site: Sign in with GitHub
+    Site->>API: /auth/login → GitHub → /auth/callback
+    API-->>Site: #lilka_token (accepted only if sign-in started in this tab)
+
+    Author->>Site: Publish: New app / wallpaper / mod + files
+    Site->>API: POST /apps, then POST /apps/:slug/versions
+    API->>R2: store files (private)
+    Note over API: version = pending_scan
+
+    Proc->>API: GET /scan/pending (SCAN_SECRET)
+    Proc->>API: download files
+    Proc->>Proc: ClamAV, shrink images,<br/>icon_min.bin, package.zip, checksums
+    alt infected
+        Proc->>API: verdict infected
+        API->>R2: delete files
+    else clean
+        Proc->>API: verdict clean + artifacts
+        API->>R2: store artifacts
+        Note over API: pending_review<br/>(imports: approved at once)
+    end
+
+    Mod->>Site: Moderation: view code, images, scan result
+    alt approve
+        Site->>API: POST /mod/versions/:id/approve
+        Note over API: approved → public on /catalog
+    else reject
+        Site->>API: POST /mod/versions/:id/reject (reason)
+        API->>R2: delete files
+    end
+
+    Mirror->>API: GET /catalog/export.json (1 request)
+    alt stamp = mirror-state.json
+        Note over Mirror: nothing changed, skip deploy
+    else changed
+        Mirror->>Pages: copy unchanged files from Pages
+        Mirror->>API: fetch files of changed items only
+        Mirror->>Pages: deploy + new mirror-state.json
+    end
+
+    Lilka->>Pages: index_N.json, index.json, static/…
+```
+
+### Version status
+
+```mermaid
+stateDiagram-v2
+    [*] --> pending_scan: upload / import
+    pending_scan --> infected: ClamAV found something<br/>(files deleted)
+    pending_scan --> pending_review: clean (user upload)
+    pending_scan --> approved: clean (import)
+    pending_review --> approved: moderator approves
+    pending_review --> rejected: moderator rejects<br/>(files deleted)
+    approved --> [*]: public on /catalog,<br/>mirror on next run
+    infected --> [*]
+    rejected --> [*]
+```
 
 ## Storage layout
 
