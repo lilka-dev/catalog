@@ -171,15 +171,15 @@ def package_manifest(info):
 
 # --------------------------------------------------------------- process ----
 
-def process(session, api, version_id):
+def process(session, api, version_id, prefix=""):
     info = session.get(f"{api}/scan/versions/{version_id}", timeout=60)
     info.raise_for_status()
     info = info.json()
+    app, version = info["app"], info["version"]
+    log(f"{prefix} {app['dir']}/{app['slug']} {version['version']}")
     if info["status"] != "pending_scan":
         log(f"  already {info['status']}, skipped")
         return
-    app, version = info["app"], info["version"]
-    log(f"  {app['dir']}/{app['slug']} {version['version']}")
 
     work = tempfile.mkdtemp()
     try:
@@ -295,18 +295,18 @@ def main():
         response = session.get(f"{api}/scan/pending", timeout=60)
         response.raise_for_status()
         ids = response.json()["ids"]
-    log(f"{len(ids)} version(s) to process")
+    # One line per item; the internal version id only shows up on failures
+    log(f"{len(ids)} item(s) to process")
 
     failed = 0
-    for version_id in ids:
-        log(f"version {version_id}")
+    for number, version_id in enumerate(ids, 1):
         try:
-            process(session, api, version_id)
+            process(session, api, version_id, f"[{number}/{len(ids)}]")
         except Exception as e:
             failed += 1
-            log(f"  failed: {e}")
+            log(f"[{number}/{len(ids)}] version id {version_id}: failed: {e}")
     if failed:
-        sys.exit(f"{failed} version(s) failed")
+        sys.exit(f"{failed} item(s) failed")
 
 
 if __name__ == "__main__":
