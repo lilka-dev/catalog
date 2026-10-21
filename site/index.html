@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Lilka Apps & Mods</title>
+    <!-- lilka-catalog-api base URL; empty keeps sign-in and publishing hidden -->
+    <meta name="lilka-api" content="https://lilka-catalog-api.black-ghost-ukraine.workers.dev">
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -11,6 +13,7 @@
         <div class="container">
             <h1>🎮 Lilka Apps & Mods</h1>
             <p class="subtitle" data-i18n="subtitle">Games, tools, and modifications for the Lilka DIY console</p>
+            <div class="account" id="account" hidden></div>
             <div class="lang-switcher" id="langSwitcher" role="group" aria-label="Language">
                 <button class="lang-btn" data-lang="uk" title="Українська">УКР</button>
                 <button class="lang-btn" data-lang="en" title="English">ENG</button>
@@ -27,6 +30,9 @@
             <button class="tab-button" data-type="authors" data-i18n="tab-authors">Authors</button>
             <button class="tab-button" data-type="examples" data-i18n="tab-examples">Examples</button>
             <button class="tab-button" data-type="docs" data-i18n="tab-docs">Documentation</button>
+            <button class="tab-button community-tab" data-type="share" data-i18n="tab-share" hidden>Publish</button>
+            <button class="tab-button community-tab" data-type="my" data-i18n="tab-my" hidden>My apps</button>
+            <button class="tab-button community-tab" data-type="mod" data-i18n="tab-mod" hidden>Moderation</button>
         </div>
     </nav>
 
@@ -55,6 +61,8 @@
         <div id="examples" class="examples-content" style="display: none;"></div>
 
         <div id="docs" class="docs-content" style="display: none;"></div>
+
+        <div id="community" class="community-content" style="display: none;"></div>
     </main>
 
     <div id="modal" class="modal">
@@ -87,6 +95,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="script.js"></script>
+    <script src="community.js"></script>
     <script defer src="https://cloud.umami.is/script.js" data-website-id="70fcef77-656a-4997-80c4-479960fb6530"></script>
 </body>
 </html>
