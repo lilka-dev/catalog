@@ -1,18 +1,24 @@
 # Pinned actions and packages only stay safe if they get updated: Dependabot
-# opens a PR per update, which runs the API tests before anyone merges it.
+# opens PRs, which run the API tests before anyone merges them.
+#
+# Updates come grouped, one PR per ecosystem: the three Pages actions only
+# work as a set, and none of them has a check that could test them on a PR.
 version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly }
+    groups:
+      actions: { patterns: ["*"] }
   - package-ecosystem: npm
     directory: /api
     schedule: { interval: weekly }
     groups:
-      cloudflare: { patterns: ["wrangler", "@cloudflare/*"] }
-  - package-ecosystem: pip
-    directory: /api
-    schedule: { interval: weekly }
+      npm: { patterns: ["*"] }
+  # One pip entry for the whole repository: "/" also finds api/requirements.txt,
+  # and a second entry for /api opened every Python update twice
   - package-ecosystem: pip
     directory: /
     schedule: { interval: weekly }
+    groups:
+      python: { patterns: ["*"] }

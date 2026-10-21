@@ -1,5 +1,6 @@
-# Exact versions: Pillow parses untrusted uploads, and these are the versions
-# whose icon_min output was checked byte for byte against the old catalog
-Pillow==12.3.0
+# Exact versions: Pillow parses untrusted uploads. Before any Pillow update,
+# check that icon_min.bin comes out byte for byte the same (13.0.0: all 61
+# live icons identical), since Lilka draws those bytes directly
+Pillow==13.0.0
 PyYAML==6.0.3
 requests==2.34.2
