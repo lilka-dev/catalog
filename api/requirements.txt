@@ -1,5 +1,5 @@
 # Exact versions: Pillow parses untrusted uploads, and these are the versions
 # whose icon_min output was checked byte for byte against the old catalog
-Pillow==12.3.0
+Pillow==13.0.0
 PyYAML==6.0.3
 requests==2.34.2
