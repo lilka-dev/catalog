@@ -1,0 +1,104 @@
+name: API
+
+# Tests every change to api/ and deploys the Worker from main.
+#
+# Pull requests run on the `pull_request` event (never pull_request_target):
+# code from a fork runs without access to any secret, and only the test job
+# runs for them. Deploying needs a push to main.
+on:
+  pull_request:
+    paths: ["api/**", ".github/workflows/api.yml"]
+  push:
+    branches: ["main"]
+    paths: ["api/**", ".github/workflows/api.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: api-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    working-directory: api
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      WRANGLER_SEND_METRICS: "false"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: api/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Smoke test against a local Worker
+        # Local D1/R2 only; the values in .dev.vars.example are dev placeholders
+        run: |
+          cp .dev.vars.example .dev.vars
+          echo "GITHUB_CLIENT_SECRET=ci-only" >> .dev.vars
+          npm run db:migrate:local
+          npx wrangler dev --port 8787 > wrangler-dev.log 2>&1 &
+          for i in $(seq 1 60); do curl -fsS localhost:8787/ >/dev/null 2>&1 && break; sleep 1; done
+          bash scripts/smoke.sh || { tail -50 wrangler-dev.log; exit 1; }
+
+  deploy:
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Repository settings can require a reviewer for this environment
+    environment: production
+    env:
+      WRANGLER_SEND_METRICS: "false"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: api/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Apply database migrations
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npx wrangler d1 migrations apply lilka-catalog --remote
+
+      - name: Sync Worker secrets from this repository
+        # Only secrets that are set here are sent, so the Worker keeps any it
+        # already has. They go through stdin and never touch the disk or log.
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          GITHUB_CLIENT_SECRET: ${{ secrets.OAUTH_CLIENT_SECRET }}
+          SCAN_SECRET: ${{ secrets.SCAN_SECRET }}
+          MIRROR_SECRET: ${{ secrets.MIRROR_SECRET }}
+          GITHUB_DISPATCH_TOKEN: ${{ secrets.DISPATCH_TOKEN }}
+        run: |
+          jq -n 'env | with_entries(select(.key | IN("GITHUB_CLIENT_SECRET","SCAN_SECRET","MIRROR_SECRET","GITHUB_DISPATCH_TOKEN"))) | with_entries(select(.value != ""))' \
+            | npx wrangler secret bulk
+
+      - name: Deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npx wrangler deploy

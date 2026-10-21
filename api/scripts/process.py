@@ -101,7 +101,7 @@ def compress_image(image_path, max_width=MAX_IMAGE_WIDTH, max_height=MAX_IMAGE_H
             else:
                 _flatten_to_rgb(img).save(image_path, 'JPEG', quality=quality, optimize=True)
     except Exception as e:
-        log(f"  could not compress {os.path.basename(image_path)}: {e}")
+        log(f"  could not compress an image: {type(e).__name__}")
 
 
 # -------------------------------------------------------------- security ----
@@ -176,7 +176,9 @@ def process(session, api, version_id, prefix=""):
     info.raise_for_status()
     info = info.json()
     app, version = info["app"], info["version"]
-    log(f"{prefix} {app['dir']}/{app['slug']} {version['version']}")
+    # The repository and so this log are public, while drafts are private
+    # until approved: name an item only once it is public (see report())
+    log(f"{prefix} {app['kind']} (version id {version_id})")
     if info["status"] != "pending_scan":
         log(f"  already {info['status']}, skipped")
         return
@@ -199,12 +201,12 @@ def process(session, api, version_id, prefix=""):
         errors = {name: v for name, v in verdicts.items() if v["status"] == "error"}
         if infected:
             detail = "\n".join(f"{name}: {v['detail']}" for name, v in infected.items())
-            log(f"  INFECTED\n{detail}")
-            report(session, api, version_id, {"result": "infected", "detail": detail}, [])
+            log("  INFECTED")
+            report(session, api, version_id, {"result": "infected", "detail": detail}, [], info)
             return
         if errors:
             # Leave it pending: the next run retries instead of passing unscanned files
-            log(f"  scan failed, will retry: {errors}")
+            log(f"  scan failed for {len(errors)} file(s), will retry")
             return
 
         before = {name: open(path, "rb").read() for name, path in paths.items()}
@@ -262,12 +264,12 @@ def process(session, api, version_id, prefix=""):
             "security": json.dumps(security),
             "icon_min": icon_min or "",
             "package": package or "",
-        }, [(name, os.path.join(work, name)) for name in artifacts])
+        }, [(name, os.path.join(work, name)) for name in artifacts], info)
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
 
-def report(session, api, version_id, fields, files):
+def report(session, api, version_id, fields, files, info):
     handles = [("artifact", (name, open(path, "rb"))) for name, path in files]
     try:
         response = session.post(f"{api}/scan/versions/{version_id}", data=fields, files=handles or None, timeout=300)
@@ -276,7 +278,11 @@ def report(session, api, version_id, fields, files):
             handle.close()
     if not response.ok:
         raise RuntimeError(f"report failed: {response.status_code} {response.text}")
-    log(f"  -> {response.json().get('status')}")
+    status = response.json().get("status")
+    if status == "approved":
+        log(f"  -> approved: {info['app']['dir']}/{info['app']['slug']} {info['version']['version']}")
+    else:
+        log(f"  -> {status}")
 
 
 def main():
@@ -304,7 +310,8 @@ def main():
             process(session, api, version_id, f"[{number}/{len(ids)}]")
         except Exception as e:
             failed += 1
-            log(f"[{number}/{len(ids)}] version id {version_id}: failed: {e}")
+            # Exception texts can hold URLs with file names of a private draft
+            log(f"[{number}/{len(ids)}] version id {version_id}: failed: {type(e).__name__}")
     if failed:
         sys.exit(f"{failed} item(s) failed")
 

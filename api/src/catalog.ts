@@ -16,6 +16,9 @@ import { objectKey } from './versions';
  * Keira's lilcatalog requests these paths under CATALOG_BASE_URL, and the
  * Pages mirror is a plain copy of this tree, so every field name and its order
  * follows build.py's `process_manifest` rather than this API's own JSON.
+ *
+ * Only the mirror job may read it (MIRROR_SECRET, checked in index.ts):
+ * devices and the website read the copy on Pages.
  */
 
 const PER_PAGE = 12; // gen_json_index_manifests
@@ -57,9 +60,7 @@ async function published(env: Env, kind?: AppRow['kind'], slug?: string): Promis
                 v.screenshots, v.changelog, v.changelog_en, v.package, v.security, v.storage_prefix
            FROM apps a
            JOIN users u ON u.id = a.owner_id
-           JOIN versions v ON v.id = (SELECT v2.id FROM versions v2
-                                       WHERE v2.app_id = a.id AND v2.status = 'approved'
-                                       ORDER BY v2.approved_at DESC, v2.id DESC LIMIT 1)
+           JOIN versions v ON v.id = a.latest_version_id
           WHERE ${where.join(' AND ')}
           ORDER BY a.slug COLLATE BINARY`,
     )
@@ -179,8 +180,6 @@ function json(c: Context<AppEnv>, data: unknown) {
         headers: {
             'Content-Type': 'application/json; charset=utf-8',
             'Cache-Control': 'public, max-age=60',
-            'Access-Control-Allow-Origin': '*',
-            'Cross-Origin-Resource-Policy': 'cross-origin',
         },
     });
 }
@@ -314,8 +313,6 @@ async function serveObject(c: Context<AppEnv>, row: CatalogRow, names: string[])
                 ETag: object.httpEtag,
                 // Same URL for every version, so it cannot be cached forever
                 'Cache-Control': 'public, max-age=300',
-                'Access-Control-Allow-Origin': '*',
-                'Cross-Origin-Resource-Policy': 'cross-origin',
                 'X-Content-Type-Options': 'nosniff',
             },
         });

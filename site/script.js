@@ -138,16 +138,10 @@ class LilkaRepository {
   //
   // The price is freshness: an approval reaches the mirror on its next
   // rebuild (right away with the API's dispatch token, otherwise hourly).
-  // During development, `lilka-api-url` in localStorage reads a local API
-  // directly, since there is no mirror next to `site/`.
+  // The API's /catalog answers only the mirror job (MIRROR_SECRET), so for
+  // local development run scripts/mirror_api.py with `--out site`.
   readDataBase() {
-    let api = '';
-    try {
-      api = localStorage.getItem('lilka-api-url') || '';
-    } catch (e) {
-      api = '';
-    }
-    return api ? `${api.replace(/\/$/, '')}/catalog/` : '';
+    return '';
   }
 
   dataUrl(path) {

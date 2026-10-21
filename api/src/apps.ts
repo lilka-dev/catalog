@@ -156,12 +156,10 @@ export function serializeApp(env: Env, a: AppRow, latest: VersionRow | null) {
 export async function latestApproved(env: Env, appIds: number[]): Promise<Map<number, VersionRow>> {
     const result = new Map<number, VersionRow>();
     if (appIds.length === 0) return result;
+    // Primary-key lookups through apps.latest_version_id (migration 0003)
     const { results } = await env.DB.prepare(
-        `SELECT v.* FROM versions v
-          WHERE v.status = 'approved' AND v.app_id IN (${appIds.map(() => '?').join(',')})
-            AND v.id = (SELECT v2.id FROM versions v2
-                         WHERE v2.app_id = v.app_id AND v2.status = 'approved'
-                         ORDER BY v2.approved_at DESC, v2.id DESC LIMIT 1)`,
+        `SELECT v.* FROM apps a JOIN versions v ON v.id = a.latest_version_id
+          WHERE a.id IN (${appIds.map(() => '?').join(',')})`,
     )
         .bind(...appIds)
         .all<VersionRow>();
@@ -246,7 +244,10 @@ interface AppInput {
 
 export const apps = new Hono<AppEnv>();
 
+// Reads need a session too: anonymous visitors use the Pages mirror, and an
+// open list here would be database work anyone could repeat for free
 apps.get('/', async (c) => {
+    requireUser(c);
     const kind = c.req.query('kind');
     const q = c.req.query('q')?.trim();
     // A huge page would overflow SQLite's OFFSET into an internal error
@@ -282,7 +283,7 @@ apps.get('/', async (c) => {
 });
 
 apps.get('/:slug', async (c) => {
-    const user = c.get('user');
+    const user = requireUser(c);
     const app = await findApp(c.env, c.req.param('slug'));
     if (!app) fail(404, 'app not found');
     const manage = canManage(user, app);
@@ -402,12 +403,10 @@ apps.patch('/:slug', async (c) => {
         if (body.status === 'hidden') {
             set('status', 'hidden');
         } else if (body.status === 'published') {
-            const approved = await c.env.DB.prepare(
-                `SELECT 1 FROM versions WHERE app_id = ? AND status = 'approved' LIMIT 1`,
-            )
+            const row = await c.env.DB.prepare(`SELECT latest_version_id FROM apps WHERE id = ?`)
                 .bind(app.id)
-                .first();
-            if (!approved) fail(409, 'app has no approved version yet');
+                .first<{ latest_version_id: number | null }>();
+            if (!row?.latest_version_id) fail(409, 'app has no approved version yet');
             set('status', 'published');
         } else {
             fail(400, 'status must be hidden or published');
@@ -458,6 +457,11 @@ apps.patch('/:slug', async (c) => {
  */
 apps.post('/:slug/versions', async (c) => {
     const user = requireUser(c);
+    // Each upload can be 24 MB of R2 writes; moderators are exempt for imports
+    if (user.role !== 'moderator') {
+        const { success } = await c.env.UPLOAD_LIMITER.limit({ key: `user:${user.id}` });
+        if (!success) fail(429, 'too many uploads in a short time, try again in a minute');
+    }
     const app = await findApp(c.env, c.req.param('slug'));
     if (!app || !canManage(user, app)) fail(404, 'app not found');
 
@@ -534,7 +538,7 @@ export const users = new Hono<AppEnv>();
 
 /** Own apps include drafts and hidden ones; anyone else's — only published. */
 users.get('/:login/apps', async (c) => {
-    const viewer = c.get('user');
+    const viewer = requireUser(c);
     const login = c.req.param('login');
     const owner = await c.env.DB.prepare(`SELECT id FROM users WHERE login = ? COLLATE NOCASE`)
         .bind(login)
@@ -588,12 +592,12 @@ export async function serveFile(c: Context<AppEnv>) {
         .first<{ version_status: string; storage_prefix: string; app_status: string; owner_id: number }>();
     if (!row) fail(404, 'file not found');
 
-    // Approved versions stay downloadable while the app is hidden: devices that
-    // already installed it may re-fetch, and the catalog drops it on next build
-    const isPublic = row.version_status === 'approved' && row.app_status !== 'draft';
+    // Owners and moderators only (My apps, Moderation): the public downloads
+    // the same files from the Pages mirror, which costs the Worker nothing
     const user = c.get('user');
-    const privileged = !!user && (user.id === row.owner_id || user.role === 'moderator');
-    if (!isPublic && !privileged) fail(404, 'file not found');
+    if (!user || user.role === 'banned' || (user.id !== row.owner_id && user.role !== 'moderator')) {
+        fail(404, 'file not found');
+    }
 
     const object = await c.env.FILES.get(objectKey(row, name));
     if (!object) fail(404, 'file not found');
@@ -602,12 +606,8 @@ export async function serveFile(c: Context<AppEnv>) {
         'Content-Type': contentTypeOf(name),
         'Content-Length': String(object.size),
         ETag: object.httpEtag,
-        // The web IDE runs cross-origin isolated (COEP: require-corp), so it
-        // may only load resources that opt in to being embedded elsewhere
-        'Cross-Origin-Resource-Policy': 'cross-origin',
         'X-Content-Type-Options': 'nosniff',
-        // Versions never change after upload, so approved files cache forever
-        'Cache-Control': isPublic ? 'public, max-age=31536000, immutable' : 'private, no-store',
+        'Cache-Control': 'private, no-store',
     });
     if (c.req.query('download') !== undefined) {
         // Imported names may hold quotes or semicolons; the encoded form cannot break the header

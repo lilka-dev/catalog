@@ -1,6 +1,6 @@
 import { Hono, type MiddlewareHandler } from 'hono';
 import type { AppEnv, Env, Role, User } from './env';
-import { allowedOrigins, csv, fail, randomToken, requireUser, sha256Hex } from './util';
+import { allowedOrigins, csv, fail, randomToken, requireUser, sha256Hex, signToken, verifyToken } from './util';
 
 const SESSION_DAYS = 30;
 const STATE_MINUTES = 10;
@@ -61,17 +61,32 @@ interface GithubUser {
 
 export const auth = new Hono<AppEnv>();
 
+/**
+ * The OAuth `state` is signed, not stored.
+ *
+ * It used to be a row in D1, so every visit to /auth/login was a database
+ * write, and a flood of them could use up D1's daily write quota and stop the
+ * whole API. A signed token carries the return URL and expiry itself, and
+ * nobody without the key can make one, which is what protects the callback
+ * from CSRF. The key is derived from the GitHub client secret, so there is no
+ * extra secret to manage.
+ */
+interface OAuthState {
+    r: string; // return URL, already checked against ALLOWED_ORIGINS
+    e: number; // expiry, ms since epoch
+    n: string; // nonce: two logins never share a state
+}
+
+function stateKey(env: Env): string {
+    if (!env.GITHUB_CLIENT_SECRET) fail(502, 'GitHub login is not configured');
+    return `oauth-state:${env.GITHUB_CLIENT_SECRET}`;
+}
+
 auth.get('/login', async (c) => {
     const returnTo = checkReturnUrl(c.env, c.req.query('return'));
     if (!c.env.GITHUB_CLIENT_ID) fail(502, 'GitHub login is not configured');
-    const state = randomToken(16);
-
-    await c.env.DB.batch([
-        c.env.DB.prepare(`DELETE FROM oauth_states WHERE expires_at <= datetime('now')`),
-        c.env.DB.prepare(
-            `INSERT INTO oauth_states (state, return_to, expires_at) VALUES (?, ?, datetime('now', ?))`,
-        ).bind(state, returnTo, `+${STATE_MINUTES} minutes`),
-    ]);
+    const payload: OAuthState = { r: returnTo, e: Date.now() + STATE_MINUTES * 60_000, n: randomToken(12) };
+    const state = await signToken(stateKey(c.env), payload);
 
     const url = new URL('https://github.com/login/oauth/authorize');
     url.searchParams.set('client_id', c.env.GITHUB_CLIENT_ID);
@@ -88,12 +103,12 @@ auth.get('/callback', async (c) => {
     const state = c.req.query('state');
     if (!code || !state) fail(400, 'code and state are required');
 
-    const row = await c.env.DB.prepare(
-        `DELETE FROM oauth_states WHERE state = ? AND expires_at > datetime('now') RETURNING return_to`,
-    )
-        .bind(state)
-        .first<{ return_to: string }>();
-    if (!row) fail(400, 'login expired, try again');
+    const signed = await verifyToken<OAuthState>(stateKey(c.env), state);
+    if (!signed || typeof signed.r !== 'string' || typeof signed.e !== 'number' || signed.e < Date.now()) {
+        fail(400, 'login expired, try again');
+    }
+    // Checked again in case ALLOWED_ORIGINS changed while the user was on GitHub
+    const row = { return_to: checkReturnUrl(c.env, signed.r) };
 
     const tokenResponse = await fetch('https://github.com/login/oauth/access_token', {
         method: 'POST',

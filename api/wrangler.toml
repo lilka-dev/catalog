@@ -1,27 +1,32 @@
 name = "lilka-catalog-api"
 main = "src/index.ts"
 compatibility_date = "2026-09-01"
+# Not a secret; lets CI deploy with an API token scoped to this account
+account_id = "ae0e107d3843a8c19ddd0fea90fb1d63"
 
 [vars]
 # Public base URL of this Worker; file links in the export are built from it
 PUBLIC_URL = "https://lilka-catalog-api.black-ghost-ukraine.workers.dev"
 GITHUB_CLIENT_ID = "Ov23li85TrkxrZwn00ZP"
-# Comma-separated list of sites allowed to call the API and to receive a login
-# Local development adds http://localhost:8000 and :5173 in .dev.vars
-ALLOWED_ORIGINS = "https://catalog.lilka.dev,https://lilka-dev.github.io"
+# Comma-separated list of sites allowed to call the API and to receive a login.
+# Only exact sites we control: lilka-dev.github.io would be every Pages site
+# of the org. Local development adds http://localhost:8000 in .dev.vars
+ALLOWED_ORIGINS = "https://catalog.lilka.dev"
 # Comma-separated GitHub numeric user ids that get the moderator role on sign-in.
 # Ids, not logins: a login is freed by a rename and can be taken by anyone.
 # Find one with: curl -s https://api.github.com/users/<login> | jq .id
 MODERATORS = "70693212" # black-ghost-off
-# Repo that runs the ClamAV scan workflow (repository_dispatch "scan-version")
-SCAN_REPO = "lilka-dev/catalog-api"
-# Repo rebuilt after an approval (repository_dispatch "api-sync")
+# Both workflows live in the catalog repo: processing (repository_dispatch
+# "scan-version") and the Pages mirror (repository_dispatch "api-sync")
+SCAN_REPO = "lilka-dev/catalog"
 CATALOG_REPO = "lilka-dev/catalog"
 
-# Secrets (set with `wrangler secret put <NAME>`, or in .dev.vars locally):
-#   GITHUB_CLIENT_SECRET  - OAuth App secret
-#   SCAN_SECRET           - shared with the scan workflow
-#   GITHUB_DISPATCH_TOKEN - fine-grained token allowed to dispatch to SCAN_REPO and CATALOG_REPO
+# Secrets. In production the deploy workflow copies them from the catalog
+# repo's Actions secrets; locally they are in .dev.vars:
+#   GITHUB_CLIENT_SECRET  - OAuth App secret (also keys the signed OAuth state)
+#   SCAN_SECRET           - shared with the processing workflow (/scan)
+#   MIRROR_SECRET         - shared with the Pages mirror job (/catalog)
+#   GITHUB_DISPATCH_TOKEN - fine-grained token: lilka-dev/catalog, Contents read/write
 
 [[d1_databases]]
 binding = "DB"
@@ -35,3 +40,21 @@ bucket_name = "lilka-catalog-files"
 
 [triggers]
 crons = ["0 3 * * *"]
+
+# Rate limits run before any database work (index.ts). They do not save
+# Worker requests, which count the moment they arrive, but they cap what each
+# client can make the database and storage do.
+[[ratelimits]]
+name = "IP_LIMITER"
+namespace_id = "1001"
+simple = { limit = 300, period = 60 }
+
+[[ratelimits]]
+name = "WRITE_LIMITER"
+namespace_id = "1002"
+simple = { limit = 60, period = 60 }
+
+[[ratelimits]]
+name = "UPLOAD_LIMITER"
+namespace_id = "1003"
+simple = { limit = 10, period = 60 }

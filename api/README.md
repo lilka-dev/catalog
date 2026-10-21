@@ -3,8 +3,8 @@
 The Lilka catalog: every app, wallpaper and mod on
 [catalog.lilka.dev](https://catalog.lilka.dev), and the way people publish
 them. It runs on Cloudflare: a Worker for the API, D1 (SQLite) for data, R2 for
-files. The [catalog repo](https://github.com/lilka-dev/catalog) is only the
-website and a static mirror for devices.
+files. It lives in `api/` of the [catalog repo](https://github.com/lilka-dev/catalog),
+next to the website (`site/`) and the static mirror for devices (`scripts/mirror_api.py`).
 
 ```mermaid
 flowchart LR
@@ -14,12 +14,12 @@ flowchart LR
         K["Lilka devices<br/>(Keira lilcatalog)"]
     end
 
-    subgraph Pages["catalog.lilka.dev · GitHub Pages (repo lilka-dev/catalog)"]
+    subgraph Pages["catalog.lilka.dev · GitHub Pages"]
         SITE["site/<br/>index.html · script.js · community.js"]
         MIRROR["Static mirror<br/>apps/ wallpapers/ mods/<br/>authors.json · mirror-state.json"]
     end
 
-    subgraph CF["lilka-catalog-api · Cloudflare Worker (this repo)"]
+    subgraph CF["lilka-catalog-api · Cloudflare Worker (api/)"]
         API["API routes<br/>/auth · /apps · /mod · /scan"]
         CAT["/catalog/…<br/>/catalog/export.json"]
         D1[("D1<br/>users · sessions · apps<br/>versions · ratings · reports")]
@@ -27,8 +27,8 @@ flowchart LR
     end
 
     subgraph GH["GitHub Actions"]
-        PROC["Process uploads<br/>(this repo, every 6 h)<br/>ClamAV · icon_min · package.zip"]
-        DEPLOY["Build and Deploy to Pages<br/>(catalog repo: push, hourly, api-sync)<br/>scripts/mirror_api.py"]
+        PROC["Process uploads<br/>(process.yml, every 6 h)<br/>ClamAV · icon_min · package.zip"]
+        DEPLOY["Build and Deploy to Pages<br/>(deploy-pages.yml: push, hourly, api-sync)<br/>scripts/mirror_api.py"]
     end
 
     GITHUB["GitHub OAuth<br/>(sign-in only)"]
@@ -46,7 +46,7 @@ flowchart LR
     CAT --- R2
 
     PROC -->|"SCAN_SECRET: fetch pending files,<br/>send verdict + artifacts"| API
-    DEPLOY -->|"1 request: export.json"| CAT
+    DEPLOY -->|"1 request: export.json (MIRROR_SECRET)"| CAT
     DEPLOY -->|"unchanged files copied from Pages"| MIRROR
     DEPLOY -->|"deploy"| Pages
     API -.->|"api-sync dispatch<br/>(needs GITHUB_DISPATCH_TOKEN)"| DEPLOY
@@ -161,23 +161,24 @@ All bodies are JSON unless noted. Authenticated calls send
 
 | Method | Path | Who | What |
 |---|---|---|---|
-| GET | `/auth/login?return=<url>` | anyone | Redirects to GitHub. `return` must be on `ALLOWED_ORIGINS` |
+| GET | `/auth/login?return=<url>` | anyone | Redirects to GitHub. `return` must be on `ALLOWED_ORIGINS`; the OAuth state is signed, nothing is stored |
 | GET | `/auth/callback` | GitHub | Redirects to `return#lilka_token=<token>` |
 | POST | `/auth/logout` | user | Ends the session |
 | GET | `/auth/me` | user | Current user |
-| GET | `/catalog/{apps,wallpapers,mods}/index_<n>.json` | anyone | Ids of published items, 12 per page |
-| GET | `/catalog/<dir>/<id>/index.json`, `index_short.json` | anyone | Manifests in build.py's format |
-| GET | `/catalog/<dir>/<id>/static/<file>`, `package.zip` | anyone | Files; `?download` forces attachment |
-| GET | `/catalog/authors.json` | anyone | Items grouped by author |
-| GET | `/apps?kind=&q=&page=` | anyone | Published apps, 24 per page |
-| GET | `/apps/:slug` | anyone / owner | Detail with versions; owner also sees drafts and statuses |
+| GET | `/catalog/{apps,wallpapers,mods}/index_<n>.json` | mirror job | Ids of published items, 12 per page |
+| GET | `/catalog/<dir>/<id>/index.json`, `index_short.json` | mirror job | Manifests in build.py's format |
+| GET | `/catalog/<dir>/<id>/static/<file>`, `package.zip` | mirror job | Files |
+| GET | `/catalog/authors.json` | mirror job | Items grouped by author |
+| GET | `/catalog/export.json` | mirror job | Everything above in one response, plus versions and a stamp |
+| GET | `/apps?kind=&q=&page=` | user | Published apps, 24 per page |
+| GET | `/apps/:slug` | user / owner | Detail with versions; owner also sees drafts and statuses |
 | POST | `/apps` | user | Create draft; `kind`: `app`, `wallpaper` or `mod` |
 | PATCH | `/apps/:slug` | owner, mod | Edit metadata, `status: hidden \| published`; moderators also `author`, `owner` (login) |
 | POST | `/apps/:slug/versions` | owner, mod | Multipart: `version`, `keira_version`, `entry_type` (`lua`, `js`, `binary`, `archive`), `changelog`, files `entry`, `files[]`, `icon`, `screenshots[]`. Mods: no entry, model files as `files[]` |
 | PUT | `/apps/:slug/rating` | user (not owner) | `{ "stars": 1..5 }` |
 | POST | `/apps/:slug/reports` | user | `{ "reason": "..." }` |
-| GET | `/users/:login/apps` | anyone | Apps of a user (all of them for the user themself) |
-| GET | `/files/:slug/:version/:name` | anyone if approved, owner, mod | File by version id; used by "My apps" and moderation previews |
+| GET | `/users/:login/apps[?versions]` | user | Apps of a user (all of them, with versions, for the user themself or a moderator) |
+| GET | `/files/:slug/:version/:name` | owner, mod | File by version id, for "My apps" and moderation previews |
 | GET | `/mod/queue?status=` | mod | Versions by status, default `pending_review` |
 | POST | `/mod/versions/:id/approve` | mod | `{ "note"?: "..." }` |
 | POST | `/mod/versions/:id/reject` | mod | `{ "note": "reason" }` |
@@ -187,6 +188,9 @@ All bodies are JSON unless noted. Authenticated calls send
 | POST | `/mod/import[?replace]` | mod | One app from the old repo (`scripts/import_catalog.py`) |
 | GET | `/scan/pending`, `/scan/versions/:id`, `/scan/files/:id/:name` | processor | For `scripts/process.py` |
 | POST | `/scan/versions/:id` | processor | Multipart: `result` (`clean` \| `infected`), `detail`, `security`, `icon_min`, `package`, files `artifact[]` |
+
+"mirror job" means `Authorization: Bearer <MIRROR_SECRET>`, "processor"
+`Bearer <SCAN_SECRET>`; both fail closed when the secret is not set.
 
 Limits: 8 MB per file, 24 MB per upload, 16 extra files, 6 screenshots, 5
 versions waiting for review per user. File names: letters, digits, `.`, `_`,
@@ -216,17 +220,24 @@ different site than the catalog and browsers block third-party cookies.
 ## Local development
 
 ```bash
-npm install
-cp .dev.vars.example .dev.vars
+cd api
+npm ci
+cp .dev.vars.example .dev.vars   # dev placeholders; set GITHUB_CLIENT_SECRET to any value
 npm run db:migrate:local
 npm run dev            # http://localhost:8787
-npm run smoke          # in another terminal: 52 end-to-end checks
+npm run smoke          # in another terminal: 86 end-to-end checks
 npm run typecheck
 ```
 
 GitHub sign-in does not work locally unless you create a separate OAuth App
 with callback `http://localhost:8787/auth/callback`; `scripts/smoke.sh` writes
 users and sessions straight into the local D1 instead.
+
+To see the website with local data, mirror the local API into `site/`:
+
+```bash
+MIRROR_SECRET=dev-mirror-secret python3 ../scripts/mirror_api.py --api http://localhost:8787 --out ../site
+```
 
 The processor needs Python with `pip install -r requirements.txt` and ClamAV:
 
@@ -236,55 +247,55 @@ API_URL=http://localhost:8787 SCAN_SECRET=dev-scan-secret python3 scripts/proces
 
 ## Deploying
 
-Everything works on the free `*.workers.dev` address; no access to the
-lilka.dev DNS is needed.
+Pushes to `main` that touch `api/` deploy through `.github/workflows/api.yml`:
+tests, then `wrangler d1 migrations apply --remote`, then the Worker secrets
+are copied from the repository's Actions secrets, then `wrangler deploy`.
+Pull requests run the tests only, without any secret.
 
-1. Create the resources and put the printed `database_id` into `wrangler.toml`:
-   ```bash
-   npx wrangler login
-   npx wrangler d1 create lilka-catalog
-   npx wrangler r2 bucket create lilka-catalog-files
-   npm run db:migrate
-   ```
-2. Create a GitHub OAuth App (org `lilka-dev` → Settings → Developer settings
-   → OAuth Apps). Callback URL: `https://lilka-catalog-api.<account>.workers.dev/auth/callback`.
-3. In `wrangler.toml` set `PUBLIC_URL`, `GITHUB_CLIENT_ID`, `MODERATORS`, and
-   trim `ALLOWED_ORIGINS` to production sites.
-4. Secrets:
-   ```bash
-   npx wrangler secret put GITHUB_CLIENT_SECRET
-   npx wrangler secret put SCAN_SECRET            # any long random string
-   npx wrangler secret put GITHUB_DISPATCH_TOKEN  # fine-grained PAT: Contents read/write on catalog-api and catalog
-   ```
-5. `npm run deploy`
-6. In this repo on GitHub: variable `API_URL`, secret `SCAN_SECRET` (same value).
-7. In the catalog repo: variable `API_URL` = the Worker URL.
+Repository → Settings → Secrets and variables → Actions:
 
-## Moving the old catalog repo in (one time)
+| Secret | What | Used by |
+|---|---|---|
+| `CLOUDFLARE_API_TOKEN` | API token, account `ae0e107d…`: *Workers Scripts: Edit*, *D1: Edit*, *Workers R2 Storage: Read* | api.yml deploy |
+| `SCAN_SECRET` | long random string | process.yml and the Worker |
+| `MIRROR_SECRET` | long random string | deploy-pages.yml and the Worker |
+| `OAUTH_CLIENT_SECRET` | GitHub OAuth App client secret (optional: the Worker keeps its own) | the Worker |
+| `DISPATCH_TOKEN` | fine-grained PAT for `lilka-dev/catalog` only, *Contents: Read and write* (optional; without it uploads wait for the 6-hourly run and approvals for the hourly mirror) | the Worker |
 
-1. `npm run db:migrate` (applies `0002_full_catalog.sql`), then `npm run deploy`.
-2. Sign in on the catalog site as a moderator and copy `lilka-token` from the
-   browser's localStorage.
-3. From a checkout of the catalog repo that still has `apps/`, `wallpapers/`
-   and `mods/`:
-   ```bash
-   pip install -r requirements.txt
-   python3 scripts/import_catalog.py ../catalog --api https://lilka-catalog-api.black-ghost-ukraine.workers.dev --token <token>
-   ```
-   `--dry-run` reads everything without sending; `--replace` re-imports.
-4. Run the "Process uploads" workflow here (or wait for its half-hourly run);
-   imports publish themselves once clean.
-5. Check `/catalog/apps/index_0.json`, then merge the catalog repo branch that
-   removes `build.py` and the app folders. Its mirror refuses to publish an
-   empty catalog, so merging too early keeps the old mirror on Pages.
+GitHub does not allow secret names starting with `GITHUB_`, hence the two
+renamed ones; the workflow maps them to the Worker's names.
 
-Later, with lilka.dev on Cloudflare DNS, add a custom domain such as
-`api.lilka.dev` to the Worker and update `PUBLIC_URL` and the OAuth callback.
+## Protection against floods
+
+Every request that reaches the Worker counts against its free daily limit
+(100k), and on `workers.dev` nothing can be filtered before it arrives. What
+the code controls is what a request costs:
+
+- visitors and Lilka devices read the Pages mirror, never the Worker;
+- nothing anonymous touches the database beyond one indexed lookup:
+  `/catalog` and `/scan` need a secret, `/apps`, `/users` and `/files` a
+  session, and the OAuth state is signed instead of stored;
+- catalog queries join through `apps.latest_version_id` (migration 0003), a
+  few rows per item instead of a scan per item;
+- rate limits per IP (300/min), per user for writes (60/min) and uploads
+  (10/min) run before any database work;
+- on the free plan the limits are hard caps: a flood can stop the API until
+  00:00 UTC, but never costs money. Do not move to a paid plan without a
+  custom domain in front of the Worker.
+
+With access to a domain on Cloudflare DNS, the remaining step is to serve the
+Worker there (e.g. `api.lilka.dev`), turn off `workers.dev`, and add a WAF
+rate-limiting rule: requests the WAF blocks never reach the Worker and do not
+count against the limit.
+
+## Moving the old catalog repo in (done)
+
+The old repository's apps were imported with `scripts/import_catalog.py`
+(`--dry-run` to read only, `--replace` to re-import). It is kept for reference.
 
 ## Not done yet
 
 - "Publish" from the web IDE.
 - A moderator UI for handing imported apps to their authors (the API has it:
   `PATCH /apps/:slug` with `owner`).
-- Rate limiting beyond the pending-review cap (Cloudflare's rate limiting
-  binding is the natural next step).
+- A custom domain with WAF rules in front of the Worker (needs DNS access).

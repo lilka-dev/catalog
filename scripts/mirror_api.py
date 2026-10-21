@@ -22,8 +22,10 @@ is cheap:
 
 Any failed download fails the whole run, so Pages never gets a half catalog.
 
+Only this job may read /catalog: it sends MIRROR_SECRET, which the API checks.
+
 Usage:
-    python3 scripts/mirror_api.py --api https://...workers.dev --out build [--skip-unchanged]
+    MIRROR_SECRET=... python3 scripts/mirror_api.py --api https://...workers.dev --out build [--skip-unchanged]
 """
 
 import argparse
@@ -70,9 +72,14 @@ def main():
     args = parser.parse_args()
 
     api = args.api.rstrip("/") + "/catalog"
+    secret = os.environ.get("MIRROR_SECRET", "")
+    if not secret:
+        sys.exit("MIRROR_SECRET is required")
     session = requests.Session()
+    # Only for API requests; Pages downloads must not carry it
+    api_headers = {"Authorization": f"Bearer {secret}"}
 
-    response = session.get(f"{api}/export.json", timeout=120)
+    response = session.get(f"{api}/export.json", headers=api_headers, timeout=120)
     response.raise_for_status()
     export = response.json()
     items = export["items"]
@@ -114,7 +121,7 @@ def main():
                 write(args.out, path, r.content)
                 counts["pages"] += 1
                 return
-        r = session.get(path_url(api, path), timeout=120)
+        r = session.get(path_url(api, path), headers=api_headers, timeout=120)
         r.raise_for_status()
         write(args.out, path, r.content)
         counts["api"] += 1

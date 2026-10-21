@@ -1,1 +1,7 @@
 build/
+site/apps/
+site/wallpapers/
+site/mods/
+site/authors.json
+site/mirror-state.json
+__pycache__/

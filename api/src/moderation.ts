@@ -14,7 +14,7 @@ import {
     type LocalizedInput,
     type VersionRow,
 } from './apps';
-import { LOOSE_NAME_RE, dispatch, fail, parseJsonArray, readJson, requireModerator, safeEqual } from './util';
+import { LOOSE_NAME_RE, dispatch, fail, parseJsonArray, readJson, requireModerator } from './util';
 import { createVersion, deleteVersionFiles, objectKey, readVersionForm } from './versions';
 
 /* --------------------------------------------------------- moderators ------ */
@@ -89,9 +89,9 @@ moderation.post('/versions/:id/approve', async (c) => {
         // A hidden app stays hidden: approving a version is not a decision to republish it
         c.env.DB.prepare(
             `UPDATE apps SET status = CASE WHEN status = 'hidden' THEN 'hidden' ELSE 'published' END,
-                             updated_at = datetime('now')
+                             latest_version_id = ?, updated_at = datetime('now')
               WHERE id = ?`,
-        ).bind(version.app_id),
+        ).bind(version.id, version.app_id),
     ]);
     c.executionCtx.waitUntil(dispatch(c.env, c.env.CATALOG_REPO, 'api-sync', { slug: version.slug }));
     return c.json({ ok: true });
@@ -276,12 +276,7 @@ moderation.post('/import', async (c) => {
  */
 export const scan = new Hono<AppEnv>();
 
-scan.use('*', async (c, next) => {
-    const secret = c.env.SCAN_SECRET;
-    const header = c.req.header('Authorization') ?? '';
-    if (!secret || !(await safeEqual(header, `Bearer ${secret}`))) fail(401, 'scanner secret required');
-    await next();
-});
+// The secret is checked in index.ts, before anything else runs
 
 scan.get('/pending', async (c) => {
     const { results } = await c.env.DB.prepare(
@@ -408,9 +403,9 @@ scan.post('/versions/:id', async (c) => {
         statements.push(
             c.env.DB.prepare(
                 `UPDATE apps SET status = CASE WHEN status = 'hidden' THEN 'hidden' ELSE 'published' END,
-                                 updated_at = datetime('now')
+                                 latest_version_id = ?, updated_at = datetime('now')
                   WHERE id = ?`,
-            ).bind(version.app_id),
+            ).bind(version.id, version.app_id),
         );
     }
     await c.env.DB.batch(statements);

@@ -44,6 +44,43 @@ export async function sha256Hex(data: ArrayBuffer | string): Promise<string> {
     return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+function base64url(bytes: Uint8Array): string {
+    return btoa(String.fromCharCode(...bytes))
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '');
+}
+
+function fromBase64url(text: string): Uint8Array {
+    const padded = text.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((text.length + 3) % 4);
+    return Uint8Array.from(atob(padded), (ch) => ch.charCodeAt(0));
+}
+
+async function hmac(secret: string, data: string): Promise<string> {
+    const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, [
+        'sign',
+    ]);
+    return base64url(new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(data))));
+}
+
+/** `payload.signature`: tamper-proof data that needs no storage. */
+export async function signToken(secret: string, payload: object): Promise<string> {
+    const body = base64url(new TextEncoder().encode(JSON.stringify(payload)));
+    return `${body}.${await hmac(secret, body)}`;
+}
+
+/** The payload of a token made by signToken, or null if it was altered. */
+export async function verifyToken<T>(secret: string, token: string): Promise<T | null> {
+    const [body, signature, extra] = token.split('.');
+    if (!body || !signature || extra !== undefined) return null;
+    if (!(await safeEqual(signature, await hmac(secret, body)))) return null;
+    try {
+        return JSON.parse(new TextDecoder().decode(fromBase64url(body))) as T;
+    } catch {
+        return null;
+    }
+}
+
 /** Compares secrets without leaking their length or common prefix through timing. */
 export async function safeEqual(a: string, b: string): Promise<boolean> {
     const [ha, hb] = await Promise.all([sha256Hex(a), sha256Hex(b)]);

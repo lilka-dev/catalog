@@ -1,0 +1,6 @@
+# Changes here can deploy code or touch secrets; with "Require review from
+# Code Owners" in branch protection they need an owner's approval.
+/api/                @black-ghost-off
+/.github/            @black-ghost-off
+/scripts/            @black-ghost-off
+/site/index.html     @black-ghost-off

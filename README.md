@@ -5,9 +5,18 @@
 The website for browsing and publishing Lilka apps, wallpapers and mods:
 [catalog.lilka.dev](https://catalog.lilka.dev).
 
-The catalog itself lives in [lilka-catalog-api](https://github.com/lilka-dev/catalog-api),
-a Cloudflare Worker with a database and file storage. This repository is the
-front-end, plus a static mirror of the catalog for Lilka devices.
+Everything is in this repository:
+
+```
+site/                  the website (GitHub Pages)
+api/                   lilka-catalog-api, the Cloudflare Worker that holds the
+                       catalog (D1 database, R2 files) — see api/README.md
+scripts/mirror_api.py  copies the catalog from the API to Pages for Lilka devices
+.github/workflows/
+  deploy-pages.yml     site + mirror: on push, hourly, and after approvals
+  process.yml          ClamAV scan and processing of new uploads
+  api.yml              API tests on every PR; deploy from main
+```
 
 ## How to publish your app, wallpaper or mod
 
@@ -32,15 +41,18 @@ File names: Latin letters, digits, `.`, `_` and `-`. Up to 8 MB per file and
 ## How it works
 
 ```
- catalog.lilka.dev (this repo, GitHub Pages)
-   site/            the website; reads <API>/catalog/... and the community API
+ catalog.lilka.dev (GitHub Pages)
+   site/            the website; reads the mirror below, and the API for
+                    sign-in, publishing and moderation
    apps/ wallpapers/ mods/ authors.json
-                    static mirror of <API>/catalog for Keira devices
+                    static mirror of the API's /catalog for Keira devices
 
- lilka-catalog-api (Cloudflare)
+ lilka-catalog-api (api/, Cloudflare)
    Worker + D1 + R2  apps, versions, files, users, ratings, moderation
    GitHub Actions    ClamAV scan, icon_min, image compression, package.zip
 ```
+
+Diagrams of the whole flow are in [api/README.md](api/README.md).
 
 The API serves the catalog under `/catalog` in exactly the layout Keira's
 `lilcatalog` reads from `https://catalog.lilka.dev`:
@@ -64,34 +76,34 @@ The website reads the public catalog from that mirror too: it is served by
 GitHub's CDN for free, while every request to the API counts against the
 Worker's daily limit. Only sign-in, publishing and moderation talk to the API,
 whose address is in `<meta name="lilka-api">` in `site/index.html`. The mirror
-itself costs one API request per run (`/catalog/export.json`), copies files of
-unchanged items from Pages, and the hourly run stops early when nothing
-changed.
+itself costs one API request per run (`/catalog/export.json`, which only the
+mirror job may read: `MIRROR_SECRET`), copies files of unchanged items from
+Pages, and the hourly run stops early when nothing changed.
 
 ## Local development
 
+Start the API locally (see [api/README.md](api/README.md)), copy its catalog
+into `site/` and serve the site:
+
 ```bash
-cd site
-python3 -m http.server 8000
+pip install -r requirements.txt
+MIRROR_SECRET=dev-mirror-secret python3 scripts/mirror_api.py --api http://localhost:8787 --out site
+cd site && python3 -m http.server 8000
 ```
 
-Then open http://localhost:8000. To work against a local API
-(`npm run dev` in lilka-catalog-api), run this in the browser console:
+Then open http://localhost:8000 and, so that sign-in and publishing use the
+local API, run this in the browser console:
 
 ```js
 localStorage.setItem('lilka-api-url', 'http://localhost:8787')
 ```
 
-To build the mirror locally:
-
-```bash
-pip install -r requirements.txt
-python3 scripts/mirror_api.py --api https://lilka-catalog-api.black-ghost-ukraine.workers.dev --out build
-```
+The copied `site/apps/`, `site/wallpapers/`, `site/mods/` and
+`site/authors.json` are not committed.
 
 ## Moderators
 
-Moderators are GitHub logins in `MODERATORS` of the API's `wrangler.toml`.
+Moderators are GitHub numeric user ids in `MODERATORS` of `api/wrangler.toml`.
 They see a **Moderation** tab: versions waiting for review with code and image
 preview, checksums and the antivirus result; approve, reject with a reason, ban
 an author; open reports.
