@@ -33,7 +33,7 @@ import json
 import os
 import sys
 from concurrent.futures import ThreadPoolExecutor
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
 import requests
 
@@ -51,6 +51,23 @@ def write(out, path, data):
     mode = "w" if isinstance(data, str) else "wb"
     with open(target, mode, **({"encoding": "utf-8"} if mode == "w" else {})) as f:
         f.write(data)
+
+
+def write_file(out, path, data):
+    """A static file, plus a copy under its percent-decoded name.
+
+    Some names hold a literal escape, e.g. `bmp280%2Bbme280_lilka.lua`. Keira
+    and the website request the name as written, and GitHub Pages decodes the
+    path first, so it looks for `bmp280+bme280_lilka.lua`. The decoded copy is
+    what that request finds; the literal one stays for encoded requests.
+    """
+    write(out, path, data)
+    folder, name = path.rsplit("/", 1)
+    decoded = unquote(name)
+    # Only the file name is decoded, and never into another path: `%2F..`
+    # must not write outside the item's folder
+    if decoded != name and "/" not in decoded and "\\" not in decoded and decoded not in (".", ".."):
+        write(out, f"{folder}/{decoded}", data)
 
 
 def github_output(**values):
@@ -118,12 +135,12 @@ def main():
             # Unchanged version: identical bytes are already on Pages
             r = session.get(path_url(args.pages, path), timeout=120)
             if r.ok:
-                write(args.out, path, r.content)
+                write_file(args.out, path, r.content)
                 counts["pages"] += 1
                 return
         r = session.get(path_url(api, path), headers=api_headers, timeout=120)
         r.raise_for_status()
-        write(args.out, path, r.content)
+        write_file(args.out, path, r.content)
         counts["api"] += 1
 
     errors = []

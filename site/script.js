@@ -624,6 +624,9 @@ class LilkaRepository {
 
     try {
       const listing = await this.loadListing(this.currentType);
+      // Without listing.json only the fixed pages exist, sorted by id: a
+      // selector that cannot change anything would only look broken
+      document.querySelector('.list-toolbar').hidden = !listing;
       if (listing) {
         const sorted = this.sortItems(listing);
         this.totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
