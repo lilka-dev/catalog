@@ -74,7 +74,6 @@ const COMMUNITY_STRINGS = {
     'view-in-catalog': 'Відкрити в каталозі',
     'versions': 'Версії',
     'no-versions': 'Версій ще немає.',
-    'rating': '★ {average} ({count})',
     'status-draft': 'чернетка',
     'status-published': 'опубліковано',
     'status-hidden': 'приховано',
@@ -84,18 +83,6 @@ const COMMUNITY_STRINGS = {
     'status-rejected': 'відхилено',
     'status-infected': 'знайдено загрозу',
     'review-note': 'Коментар модератора',
-    'rating-title': 'Оцінка',
-    'rating-none': 'Ще ніхто не оцінив.',
-    // Plural forms by Intl.PluralRules: one / few / many (and other)
-    'rating-summary-one': '★ {average} · {count} оцінка',
-    'rating-summary-few': '★ {average} · {count} оцінки',
-    'rating-summary-many': '★ {average} · {count} оцінок',
-    'rating-summary-other': '★ {average} · {count} оцінки',
-    'rating-yours': 'Ваша оцінка:',
-    'rating-star': '{n} з 5',
-    'rating-sign-in': 'Увійдіть, щоб оцінити',
-    'rating-thanks': 'Дякуємо! Ваша оцінка ({stars}★) з’явиться в списку протягом години.',
-    'rating-own': 'Свій застосунок оцінити не можна.',
     'files-removed': 'Файли цієї версії видалено після відхилення.',
     'file-gone': 'Цього файлу вже немає.',
     'scan-detail': 'Результат антивірусу',
@@ -196,7 +183,6 @@ const COMMUNITY_STRINGS = {
     'view-in-catalog': 'Open in catalog',
     'versions': 'Versions',
     'no-versions': 'No versions yet.',
-    'rating': '★ {average} ({count})',
     'status-draft': 'draft',
     'status-published': 'published',
     'status-hidden': 'hidden',
@@ -206,15 +192,6 @@ const COMMUNITY_STRINGS = {
     'status-rejected': 'rejected',
     'status-infected': 'threat found',
     'review-note': 'Moderator note',
-    'rating-title': 'Rating',
-    'rating-none': 'No ratings yet.',
-    'rating-summary-one': '★ {average} · {count} rating',
-    'rating-summary-other': '★ {average} · {count} ratings',
-    'rating-yours': 'Your rating:',
-    'rating-star': '{n} of 5',
-    'rating-sign-in': 'Sign in to rate',
-    'rating-thanks': 'Thanks! Your rating ({stars}★) shows in the list within an hour.',
-    'rating-own': 'You cannot rate your own app.',
     'files-removed': 'The files of this version were deleted when it was rejected.',
     'file-gone': 'This file is no longer available.',
     'scan-detail': 'Antivirus result',
@@ -489,64 +466,6 @@ class CommunityUI {
     } catch (e) {
       return url;
     }
-  }
-
-  // --- Rating in the details view ------------------------------------------
-
-  // The average comes from listing.json on Pages (no Worker request); only
-  // sending a rating calls the API. The list picks it up on the next mirror run.
-  async mountRating(modalBody, type, slug, entry) {
-    if (!this.enabled || !['apps', 'wallpapers', 'mods'].includes(type)) return;
-    const section = document.createElement('div');
-    section.className = 'modal-section rating-section';
-    const header = modalBody.querySelector('.modal-header');
-    if (header) header.after(section); else modalBody.prepend(section);
-
-    const rating = entry && entry.rating;
-    const plural = rating && rating.count ? new Intl.PluralRules(this.app.currentLang).select(rating.count) : '';
-    const summary = rating && rating.count ?
-        this.t(`rating-summary-${plural}`, {average: rating.average, count: rating.count}) :
-        this.t('rating-none');
-    section.innerHTML = `
-      <h3>${this.esc(this.t('rating-title'))}</h3>
-      <p class="rating-summary">${this.esc(summary)}</p>
-      <div class="rating-action"></div>
-      <p class="community-hint rating-message" hidden></p>`;
-
-    await this.ready;
-    const action = section.querySelector('.rating-action');
-    if (!this.user) {
-      action.innerHTML = `<button class="btn-sm rating-sign-in">${this.esc(this.t('rating-sign-in'))}</button>`;
-      action.querySelector('button').addEventListener('click', () => this.signIn());
-      return;
-    }
-    action.innerHTML = `<span class="community-hint">${this.esc(this.t('rating-yours'))}</span>
-      <span class="rating-stars" role="group">${[1, 2, 3, 4, 5].map(n =>
-          `<button class="rating-star" data-stars="${n}" title="${this.esc(this.t('rating-star', {n}))}"
-              aria-label="${this.esc(this.t('rating-star', {n}))}">★</button>`).join('')}</span>`;
-    const message = section.querySelector('.rating-message');
-    const stars = [...action.querySelectorAll('.rating-star')];
-    const show = (n) => stars.forEach(b => b.classList.toggle('on', Number(b.dataset.stars) <= n));
-    action.querySelector('.rating-stars').addEventListener('mouseleave', () => show(Number(action.dataset.chosen || 0)));
-    stars.forEach(button => {
-      button.addEventListener('mouseenter', () => show(Number(button.dataset.stars)));
-      button.addEventListener('click', async () => {
-        const n = Number(button.dataset.stars);
-        stars.forEach(b => b.disabled = true);
-        try {
-          await this.request('PUT', `/apps/${encodeURIComponent(slug)}/rating`, {stars: n});
-          action.dataset.chosen = String(n);
-          show(n);
-          message.textContent = this.t('rating-thanks', {stars: n});
-          if (window.umami) window.umami.track('rate', {item: slug, stars: n});
-        } catch (error) {
-          message.textContent = error.status === 403 ? this.t('rating-own') : this.t('error', {message: error.message});
-        } finally {
-          message.hidden = false;
-          stars.forEach(b => b.disabled = false);
-        }
-      });
-    });
   }
 
   // --- API -------------------------------------------------------------------
@@ -969,15 +888,13 @@ class CommunityUI {
 
   renderMyApp(app) {
     const [catalogType] = app.catalog_path.split('/');
-    const rating = app.rating && app.rating.count ?
-        `<span class="community-hint">${this.esc(this.t('rating', app.rating))}</span>` : '';
     return `
       <div class="community-card" data-slug="${this.esc(app.slug)}">
         <div class="community-card-head">
           <div>
             <h3>${this.esc(this.appName(app))}</h3>
             <code class="community-slug">${this.esc(app.slug)}</code>
-            ${this.statusBadge(app.status)} ${rating}
+            ${this.statusBadge(app.status)}
           </div>
           <div class="community-actions">
             <button class="btn-sm" data-action="new-version">${this.esc(this.t('new-version'))}</button>

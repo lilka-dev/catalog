@@ -42,8 +42,6 @@ export interface AppRow {
     updated_at: string;
     owner_login: string;
     owner_avatar: string | null;
-    rating_avg: number | null;
-    rating_count: number;
 }
 
 export interface VersionRow {
@@ -74,9 +72,7 @@ export interface VersionRow {
 }
 
 export const APP_SELECT = `
-    SELECT a.*, u.login AS owner_login, u.avatar_url AS owner_avatar,
-           (SELECT AVG(stars) FROM ratings r WHERE r.app_id = a.id) AS rating_avg,
-           (SELECT COUNT(*) FROM ratings r WHERE r.app_id = a.id) AS rating_count
+    SELECT a.*, u.login AS owner_login, u.avatar_url AS owner_avatar
       FROM apps a JOIN users u ON u.id = a.owner_id`;
 
 export function fileUrl(env: Env, slug: string, versionId: number, name: string): string {
@@ -145,7 +141,6 @@ export function serializeApp(env: Env, a: AppRow, latest: VersionRow | null) {
         sources_url: a.sources_url,
         license: a.license,
         owner: { login: a.owner_login, avatar_url: a.owner_avatar },
-        rating: { average: a.rating_avg === null ? null : Math.round(a.rating_avg * 10) / 10, count: a.rating_count },
         latest_version: latest ? serializeVersion(env, a.slug, latest, false) : null,
         created_at: a.created_at,
         updated_at: a.updated_at,
@@ -297,18 +292,9 @@ apps.get('/:slug', async (c) => {
         .all<VersionRow>();
     const latest = results.find((v) => v.status === 'approved') ?? null;
 
-    let myRating: number | null = null;
-    if (user) {
-        const row = await c.env.DB.prepare(`SELECT stars FROM ratings WHERE app_id = ? AND user_id = ?`)
-            .bind(app.id, user.id)
-            .first<{ stars: number }>();
-        myRating = row?.stars ?? null;
-    }
-
     return c.json({
         ...serializeApp(c.env, app, latest),
         can_manage: manage,
-        my_rating: myRating,
         versions: results.map((v) => serializeVersion(c.env, app.slug, v, manage)),
     });
 });
@@ -490,25 +476,6 @@ apps.post('/:slug/versions', async (c) => {
         .bind(versionId)
         .first<VersionRow>();
     return c.json(serializeVersion(c.env, app.slug, created!, true), 201);
-});
-
-apps.put('/:slug/rating', async (c) => {
-    const user = requireUser(c);
-    const app = await findApp(c.env, c.req.param('slug'));
-    if (!app || app.status !== 'published') fail(404, 'app not found');
-    if (app.owner_id === user.id) fail(403, 'cannot rate your own app');
-    const { stars } = await readJson<{ stars?: unknown }>(c);
-    if (typeof stars !== 'number' || !Number.isInteger(stars) || stars < 1 || stars > 5) {
-        fail(400, 'stars must be an integer from 1 to 5');
-    }
-    await c.env.DB.prepare(
-        `INSERT INTO ratings (app_id, user_id, stars) VALUES (?, ?, ?)
-         ON CONFLICT (app_id, user_id) DO UPDATE SET stars = excluded.stars, updated_at = datetime('now')`,
-    )
-        .bind(app.id, user.id, stars)
-        .run();
-    const updated = await findApp(c.env, app.slug);
-    return c.json({ average: updated!.rating_avg, count: updated!.rating_count, my_rating: stars });
 });
 
 apps.post('/:slug/reports', async (c) => {

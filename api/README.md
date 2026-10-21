@@ -22,7 +22,7 @@ flowchart LR
     subgraph CF["lilka-catalog-api · Cloudflare Worker (api/)"]
         API["API routes<br/>/auth · /apps · /mod · /scan"]
         CAT["/catalog/…<br/>/catalog/export.json"]
-        D1[("D1<br/>users · sessions · apps<br/>versions · ratings · reports")]
+        D1[("D1<br/>users · sessions · apps<br/>versions · reports")]
         R2[("R2<br/>&lt;id&gt;-&lt;name&gt;/v/&lt;version&gt;/&lt;file&gt;")]
     end
 
@@ -175,7 +175,6 @@ All bodies are JSON unless noted. Authenticated calls send
 | POST | `/apps` | user | Create draft; `kind`: `app`, `wallpaper` or `mod` |
 | PATCH | `/apps/:slug` | owner, mod | Edit metadata, `status: hidden \| published`; moderators also `author`, `owner` (login) |
 | POST | `/apps/:slug/versions` | owner, mod | Multipart: `version`, `keira_version`, `entry_type` (`lua`, `js`, `binary`, `archive`), `changelog`, files `entry`, `files[]`, `icon`, `screenshots[]`. Mods: no entry, model files as `files[]` |
-| PUT | `/apps/:slug/rating` | user (not owner) | `{ "stars": 1..5 }` |
 | POST | `/apps/:slug/reports` | user | `{ "reason": "..." }` |
 | GET | `/users/:login/apps[?versions]` | user | Apps of a user (all of them, with versions, for the user themself or a moderator) |
 | GET | `/files/:slug/:version/:name` | owner, mod | File by version id, for "My apps" and moderation previews |

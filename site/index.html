@@ -52,21 +52,25 @@
         <div id="error" class="error" style="display: none;"></div>
         
         <div id="content">
-            <div class="list-toolbar">
-                <label for="sortSelect" data-i18n="sort-label">Sort by</label>
-                <select id="sortSelect">
-                    <option value="newest" data-i18n="sort-newest">Newest</option>
-                    <option value="updated" data-i18n="sort-updated">Recently updated</option>
-                    <option value="rating" data-i18n="sort-rating">Top rated</option>
-                    <option value="name" data-i18n="sort-name">Name</option>
-                    <option value="author" data-i18n="sort-author">Author</option>
-                </select>
-            </div>
+            <!-- Pagination in the middle, sorting on the right -->
+            <div class="list-head">
+                <div class="pagination">
+                    <button id="prevPage" class="btn" disabled>←</button>
+                    <div id="pageNumbers" class="page-numbers"></div>
+                    <button id="nextPage" class="btn" disabled>→</button>
+                </div>
 
-            <div class="pagination">
-                <button id="prevPage" class="btn" disabled>←</button>
-                <div id="pageNumbers" class="page-numbers"></div>
-                <button id="nextPage" class="btn" disabled>→</button>
+                <div class="list-toolbar">
+                    <label for="sortSelect" data-i18n="sort-label">Sort by</label>
+                    <select id="sortSelect">
+                        <option value="newest" data-i18n="sort-newest">Newest</option>
+                        <option value="updated" data-i18n="sort-updated">Recently updated</option>
+                        <option value="name" data-i18n="sort-name">Name</option>
+                        <option value="author" data-i18n="sort-author">Author</option>
+                    </select>
+                    <button id="sortReverse" class="sort-reverse" type="button" aria-pressed="false"
+                            data-i18n-title="sort-reverse" title="Reverse order">↓</button>
+                </div>
             </div>
 
             <div id="items" class="items-grid"></div>
