@@ -32,15 +32,33 @@ moderation.get('/queue', async (c) => {
     const allowed = ['pending_scan', 'pending_review', 'infected', 'rejected', 'approved'];
     if (!allowed.includes(status)) fail(400, `status must be one of ${allowed.join(', ')}`);
     const { results } = await c.env.DB.prepare(
-        `SELECT v.*, a.slug, a.kind, a.name_uk, a.name_en, u.login AS owner_login
+        `SELECT v.*, a.slug, a.kind, a.name_uk, a.name_en, a.author, a.owner_id, u.login AS owner_login
            FROM versions v JOIN apps a ON a.id = v.app_id JOIN users u ON u.id = a.owner_id
           WHERE v.status = ? ORDER BY v.created_at ASC LIMIT 100`,
     )
         .bind(status)
-        .all<VersionRow & { slug: string; kind: string; name_uk: string | null; name_en: string | null; owner_login: string }>();
+        .all<
+            VersionRow & {
+                slug: string;
+                kind: string;
+                name_uk: string | null;
+                name_en: string | null;
+                author: string | null;
+                owner_id: number;
+                owner_login: string;
+            }
+        >();
     return c.json({
         items: results.map((v) => ({
-            app: { slug: v.slug, kind: v.kind, name: { uk: v.name_uk, en: v.name_en }, owner: v.owner_login },
+            app: {
+                slug: v.slug,
+                kind: v.kind,
+                name: { uk: v.name_uk, en: v.name_en },
+                author: displayAuthor(v),
+                owner: v.owner_login,
+                // Still with the catalog account: imported and not handed over yet
+                unclaimed: v.owner_id === 0,
+            },
             version: serializeVersion(c.env, v.slug, v, true),
         })),
     });
@@ -111,6 +129,8 @@ moderation.post('/users/:login/ban', async (c) => {
         .bind(c.req.param('login'))
         .first<{ id: number; role: string }>();
     if (!user) fail(404, 'user not found');
+    // Banning the catalog account would hide every imported app at once
+    if (user.id === 0) fail(409, 'the catalog account owns imported apps and cannot be banned');
     if (user.role === 'moderator') fail(409, 'remove the user from MODERATORS first');
     await c.env.DB.batch([
         c.env.DB.prepare(`UPDATE users SET role = 'banned' WHERE id = ?`).bind(user.id),

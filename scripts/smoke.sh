@@ -132,6 +132,22 @@ call 409 "infected version cannot be approved" "${mod[@]}" "${json[@]}" -X POST 
 call 200 "catalog still serves the clean version" "$API/catalog/apps/smoke-hello/index.json"
 jq -e '.entryfile.location == "hello.lua"' "$work/body" >/dev/null || { echo "FAIL infected leaked"; exit 1; }
 
+call 201 "moderator imports a repo app" "${mod[@]}" -X POST "$API/mod/import" \
+    -F 'meta={"slug":"Smoke_Import","kind":"app","author":"@smoke-dev","name":{"uk":"Імпорт"},"short_description":{"uk":"з репозиторію\n"},"sources":{"type":"git","origin":"https://github.com/smoke-dev/x"}}' \
+    -F version=1.0.0 -F keira_version=1.0.0 -F entry_type=lua -F "entry=@$work/hello.lua"
+import_id=$(jq -r .version_id "$work/body")
+call 200 "queue shows the import" "${mod[@]}" "$API/mod/queue?status=pending_scan"
+jq -e --argjson id "$import_id" '.items[] | select(.version.id == $id) | .app.author == "@smoke-dev" and .app.owner == "lilka-catalog" and .app.unclaimed == true' \
+    "$work/body" >/dev/null && imp=ok || imp=wrong
+check "queue gives author, owner and unclaimed" ok "$imp"
+call 409 "catalog account cannot be banned" "${mod[@]}" -X POST "$API/mod/users/lilka-catalog/ban"
+call 404 "hand over needs a signed-in user" "${mod[@]}" "${json[@]}" -X PATCH "$API/apps/Smoke_Import" -d '{"owner":"nobody-here"}'
+call 200 "moderator hands the import over" "${mod[@]}" "${json[@]}" -X PATCH "$API/apps/Smoke_Import" -d '{"owner":"smoke-dev"}'
+check "new owner sees it in their apps" ok "$(curl -sS "${user[@]}" "$API/users/smoke-dev/apps" | jq -r '[.items[].slug] | index("Smoke_Import") | if . == null then "missing" else "ok" end')"
+call 200 "app after hand-over" "${mod[@]}" "$API/apps/Smoke_Import"
+check "author line kept after hand-over" "@smoke-dev" "$(jq -r .author "$work/body")"
+call 404 "import is not public before processing" "$API/catalog/apps/Smoke_Import/index.json"
+
 call 200 "owner hides app" "${user[@]}" "${json[@]}" -X PATCH "$API/apps/smoke-hello" -d '{"status":"hidden"}'
 call 404 "hidden app leaves the catalog" "$API/catalog/apps/smoke-hello/index.json"
 call 403 "author change needs moderator" "${user[@]}" "${json[@]}" -X PATCH "$API/apps/smoke-hello" -d '{"author":"@someone"}'

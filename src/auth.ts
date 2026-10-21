@@ -163,6 +163,17 @@ export async function createSession(env: Env, gh: GithubUser): Promise<string> {
         env.DB.prepare(
             `INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, datetime('now', ?))`,
         ).bind(tokenHash, gh.id, `+${SESSION_DAYS} days`),
+        // Apps imported from the old repo belong to the catalog account until
+        // their author signs in. Only apps and wallpapers: their author line is
+        // the GitHub login, and nobody else can sign in as an existing login.
+        // Mods name Printables accounts, which anyone could register on GitHub,
+        // so a moderator hands those over by hand.
+        env.DB.prepare(
+            `UPDATE apps SET owner_id = ?1, updated_at = datetime('now')
+              WHERE owner_id = 0 AND kind IN ('app', 'wallpaper')
+                AND lower(author) = lower('@' || ?2)
+                AND NOT EXISTS (SELECT 1 FROM users WHERE id = ?1 AND role = 'banned')`,
+        ).bind(gh.id, gh.login),
     ]);
     return token;
 }
