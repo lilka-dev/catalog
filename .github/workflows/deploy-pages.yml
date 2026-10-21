@@ -32,7 +32,7 @@ jobs:
     outputs:
       changed: ${{ steps.mirror.outputs.changed }}
     env:
-      API_URL: ${{ vars.API_URL || 'https://lilka-catalog-api.black-ghost-ukraine.workers.dev' }}
+      API_URL: ${{ vars.API_URL || 'https://catalog-api.lilka.org' }}
     steps:
       # Actions are pinned to commits: a moved tag cannot change what runs here
       - name: Checkout

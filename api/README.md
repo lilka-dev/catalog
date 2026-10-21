@@ -199,7 +199,7 @@ versions waiting for review per user. File names: letters, digits, `.`, `_`,
 ### Signing in from a page
 
 ```js
-const API = 'https://lilka-catalog-api.<account>.workers.dev';
+const API = 'https://catalog-api.lilka.org';
 
 // Button
 location.href = `${API}/auth/login?return=${encodeURIComponent(location.href)}`;
@@ -256,7 +256,7 @@ Repository → Settings → Secrets and variables → Actions:
 
 | Secret | What | Used by |
 |---|---|---|
-| `CLOUDFLARE_API_TOKEN` | API token, account `ae0e107d…`: *Workers Scripts: Edit*, *D1: Edit*, *Workers R2 Storage: Read* | api.yml deploy |
+| `CLOUDFLARE_API_TOKEN` | API token. Account `ae0e107d…`: *Workers Scripts: Edit*, *D1: Edit*, *Workers R2 Storage: Read*. Zone `lilka.org`: *Workers Routes: Edit*, *DNS: Edit* (for the custom domain) | api.yml deploy |
 | `SCAN_SECRET` | long random string | process.yml and the Worker |
 | `MIRROR_SECRET` | long random string | deploy-pages.yml and the Worker |
 | `OAUTH_CLIENT_SECRET` | GitHub OAuth App client secret (optional: the Worker keeps its own) | the Worker |
@@ -267,9 +267,10 @@ renamed ones; the workflow maps them to the Worker's names.
 
 ## Protection against floods
 
-Every request that reaches the Worker counts against its free daily limit
-(100k), and on `workers.dev` nothing can be filtered before it arrives. What
-the code controls is what a request costs:
+The API is served at `https://catalog-api.lilka.org` (a Worker custom domain in
+the `lilka.org` Cloudflare zone). Every request that reaches the Worker counts
+against its free daily limit (100k), so the first line of defence is in front
+of it, and the code keeps what a request costs low behind it:
 
 - visitors and Lilka devices read the Pages mirror, never the Worker;
 - nothing anonymous touches the database beyond one indexed lookup:
@@ -283,10 +284,23 @@ the code controls is what a request costs:
   00:00 UTC, but never costs money. Do not move to a paid plan without a
   custom domain in front of the Worker.
 
-With access to a domain on Cloudflare DNS, the remaining step is to serve the
-Worker there (e.g. `api.lilka.dev`), turn off `workers.dev`, and add a WAF
-rate-limiting rule: requests the WAF blocks never reach the Worker and do not
-count against the limit.
+### The WAF rule in front (Cloudflare dashboard, once)
+
+Requests the WAF blocks never reach the Worker and do not count. In the
+dashboard: **lilka.org → Security → Security rules → Create rule → Rate
+limiting rule**:
+
+- *If incoming requests match*: Hostname equals `catalog-api.lilka.org`
+- *With the same characteristics*: IP
+- *When rate exceeds*: 100 requests per 10 seconds
+- *Then take action*: Block, for 10 seconds
+
+The mirror job and the processor pace themselves under that (5 and 5
+requests per second). Leave **Bot Fight Mode** off for this zone: it would
+challenge the GitHub Actions jobs, which are not browsers.
+
+`workers_dev` in `wrangler.toml` is on only while clients move to the new
+address; with it off, the WAF cannot be bypassed through `*.workers.dev`.
 
 ## Moving the old catalog repo in (done)
 

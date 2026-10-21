@@ -25,6 +25,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import zipfile
 from datetime import datetime
 
@@ -37,6 +38,10 @@ MAX_IMAGE_HEIGHT = 1080
 MAX_ICON_SIZE = 512
 MIN_ICON_SIZE = 64  # For ESP32-S3 display
 JPEG_QUALITY = 85
+
+# The API sits behind a Cloudflare rate-limiting rule (per IP, 100 requests
+# per 10 s); an item with many files must not trip it
+MIN_REQUEST_INTERVAL = 0.2
 
 CLAMDSCAN = shutil.which("clamdscan")
 CLAMSCAN = shutil.which("clamscan")
@@ -285,6 +290,19 @@ def report(session, api, version_id, fields, files, info):
         log(f"  -> {status}")
 
 
+class PacedSession(requests.Session):
+    """A session that keeps MIN_REQUEST_INTERVAL between requests."""
+
+    _last = 0.0
+
+    def request(self, *args, **kwargs):
+        delay = self._last + MIN_REQUEST_INTERVAL - time.monotonic()
+        if delay > 0:
+            time.sleep(delay)
+        self._last = time.monotonic()
+        return super().request(*args, **kwargs)
+
+
 def main():
     api = os.environ.get("API_URL", "").rstrip("/")
     secret = os.environ.get("SCAN_SECRET", "")
@@ -293,7 +311,7 @@ def main():
         # In Actions: Settings -> Secrets and variables -> Actions; SCAN_SECRET
         # must be a repository *secret* with the same value as the Worker's
         sys.exit(f"missing {', '.join(missing)}")
-    session = requests.Session()
+    session = PacedSession()
     session.headers["Authorization"] = f"Bearer {secret}"
 
     ids = [int(a) for a in sys.argv[1:]]

@@ -4,9 +4,17 @@ compatibility_date = "2026-09-01"
 # Not a secret; lets CI deploy with an API token scoped to this account
 account_id = "ae0e107d3843a8c19ddd0fea90fb1d63"
 
+# The API's address. On a domain in our Cloudflare zone, a WAF rate-limiting
+# rule can stop floods before they reach the Worker (blocked requests do not
+# count against its daily limit), which workers.dev does not allow.
+routes = [{ pattern = "catalog-api.lilka.org", custom_domain = true }]
+# Still on while the site moves over; turned off once nothing uses it, so the
+# WAF cannot be bypassed through the workers.dev address
+workers_dev = true
+
 [vars]
 # Public base URL of this Worker; file links in the export are built from it
-PUBLIC_URL = "https://lilka-catalog-api.black-ghost-ukraine.workers.dev"
+PUBLIC_URL = "https://catalog-api.lilka.org"
 GITHUB_CLIENT_ID = "Ov23li85TrkxrZwn00ZP"
 # Comma-separated list of sites allowed to call the API and to receive a login.
 # Only exact sites we control: lilka-dev.github.io would be every Pages site

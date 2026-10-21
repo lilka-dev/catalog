@@ -55,6 +55,6 @@ jobs:
 
       - name: Process pending versions
         env:
-          API_URL: ${{ vars.API_URL || 'https://lilka-catalog-api.black-ghost-ukraine.workers.dev' }}
+          API_URL: ${{ vars.API_URL || 'https://catalog-api.lilka.org' }}
           SCAN_SECRET: ${{ secrets.SCAN_SECRET }}
         run: python3 scripts/process.py

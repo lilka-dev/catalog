@@ -25,19 +25,42 @@ Any failed download fails the whole run, so Pages never gets a half catalog.
 Only this job may read /catalog: it sends MIRROR_SECRET, which the API checks.
 
 Usage:
-    MIRROR_SECRET=... python3 scripts/mirror_api.py --api https://...workers.dev --out build [--skip-unchanged]
+    MIRROR_SECRET=... python3 scripts/mirror_api.py --api https://catalog-api.lilka.org --out build [--skip-unchanged]
 """
 
 import argparse
 import json
 import os
 import sys
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import quote
 
 import requests
 
 STATE_FILE = "mirror-state.json"
+# The API sits behind a Cloudflare rate-limiting rule (per IP, 100 requests
+# per 10 s). A full rebuild can fetch hundreds of files, so API requests are
+# paced well under that; downloads from Pages are not limited.
+API_REQUESTS_PER_SECOND = 5
+
+
+class Pace:
+    """Spaces calls at least 1/rate seconds apart, across threads."""
+
+    def __init__(self, rate):
+        self.interval = 1.0 / rate
+        self.lock = threading.Lock()
+        self.next = 0.0
+
+    def wait(self):
+        with self.lock:
+            now = time.monotonic()
+            delay = self.next - now
+            self.next = max(now, self.next) + self.interval
+        if delay > 0:
+            time.sleep(delay)
 
 
 def path_url(base, path):
@@ -78,6 +101,7 @@ def main():
     session = requests.Session()
     # Only for API requests; Pages downloads must not carry it
     api_headers = {"Authorization": f"Bearer {secret}"}
+    pace = Pace(API_REQUESTS_PER_SECOND)
 
     response = session.get(f"{api}/export.json", headers=api_headers, timeout=120)
     response.raise_for_status()
@@ -121,6 +145,7 @@ def main():
                 write(args.out, path, r.content)
                 counts["pages"] += 1
                 return
+        pace.wait()
         r = session.get(path_url(api, path), headers=api_headers, timeout=120)
         r.raise_for_status()
         write(args.out, path, r.content)

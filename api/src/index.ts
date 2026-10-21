@@ -11,9 +11,9 @@ import { allowedOrigins, fail, safeEqual } from './util';
 const app = new Hono<AppEnv>();
 
 /**
- * Every request that reaches the Worker counts against its daily limit, and
- * on workers.dev nothing can be filtered before it arrives. What can be
- * controlled is what a request costs once here, so:
+ * Every request that reaches the Worker counts against its daily limit. The
+ * WAF rule on catalog-api.lilka.org (README) stops floods before they get
+ * here; what this code controls is what a request costs once here, so:
  *
  * - nothing anonymous touches the database beyond one indexed lookup; the
  *   public catalog lives on Pages, and /catalog is for the mirror job only;
