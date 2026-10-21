@@ -161,14 +161,16 @@ call 200 "download name is encoded" -I "${user[@]}" "$API/files/smoke-hello/$ver
 grep -qi "filename\*=UTF-8''hello.lua" "$work/body" && dl=ok || dl=raw
 check "Content-Disposition uses filename*" ok "$dl"
 r2_list() { curl -sS "$API/cdn-cgi/local/explorer/api/r2/buckets/lilka-catalog-files/objects?limit=1000" | jq -r '.result[].key'; }
-check "infected files are deleted" 0 "$(r2_list | grep -c "smoke-hello/v/1.0.1/" || true)"
+# The local bucket outlives the database between runs, so look only at this run's folders
+prefix_of() { npx wrangler d1 execute lilka-catalog --local --json --command "SELECT storage_prefix FROM versions WHERE id = $1" 2>/dev/null | jq -r '.[0].results[0].storage_prefix'; }
+check "infected files are deleted" 0 "$(r2_list | grep -c "^$(prefix_of "$evil_id")/" || true)"
 call 201 "upload a version to reject" "${user[@]}" -X POST "$API/apps/smoke-case/versions" -F version=2.0.0 -F "files=@$work/case.stl"
 reject_id=$(jq -r .id "$work/body")
 call 200 "processor clears it" "${scanner[@]}" -X POST "$API/scan/versions/$reject_id" -F result=clean
 call 200 "moderator rejects it" "${mod[@]}" "${json[@]}" -X POST "$API/mod/versions/$reject_id/reject" -d '{"note":"not a case"}'
 sleep 1
-check "rejected files are deleted" 0 "$(r2_list | grep -c "smoke-case/v/2.0.0/" || true)"
-check "approved files are kept" 1 "$(r2_list | grep -c "smoke-hello/v/1.0.0/hello.lua" || true)"
+check "rejected files are deleted" 0 "$(r2_list | grep -c "^$(prefix_of "$reject_id")/" || true)"
+check "approved files are kept" 1 "$(r2_list | grep -c "^$(prefix_of "$version_id")/hello.lua$" || true)"
 
 call 200 "owner hides app" "${user[@]}" "${json[@]}" -X PATCH "$API/apps/smoke-hello" -d '{"status":"hidden"}'
 call 404 "hidden app leaves the catalog" "$API/catalog/apps/smoke-hello/index.json"
