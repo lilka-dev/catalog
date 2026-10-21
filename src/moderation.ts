@@ -106,6 +106,9 @@ moderation.post('/versions/:id/reject', async (c) => {
     await c.env.DB.prepare(`UPDATE versions SET status = 'rejected', reviewed_by = ?, review_note = ? WHERE id = ?`)
         .bind(moderator.id, note.trim(), version.id)
         .run();
+    // The row keeps the reason for the author; the files are never served
+    // again, and keeping them would let rejected re-uploads fill the bucket
+    c.executionCtx.waitUntil(deleteVersionFiles(c.env, version.storage_prefix));
     return c.json({ ok: true });
 });
 
@@ -369,6 +372,8 @@ scan.post('/versions/:id', async (c) => {
         await c.env.DB.prepare(`UPDATE versions SET status = 'infected', scan_detail = ?, processed_at = datetime('now') WHERE id = ?`)
             .bind(detail, version.id)
             .run();
+        // Malware is not kept around, not even privately
+        await deleteVersionFiles(c.env, version.storage_prefix);
         return c.json({ ok: true, status: 'infected' });
     }
 

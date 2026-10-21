@@ -119,6 +119,10 @@ auth.get('/callback', async (c) => {
     const gh = (await userResponse.json()) as GithubUser;
 
     const token = await createSession(c.env, gh);
+    // Best effort: a GitHub hiccup must not break the sign-in itself
+    await claimImportedApps(c.env, gh, tokenBody.access_token).catch((error) =>
+        console.error(`claiming imported apps for ${gh.login} failed: ${error}`),
+    );
     const target = new URL(row.return_to);
     target.hash = `lilka_token=${token}`;
     return c.redirect(target.toString(), 302);
@@ -135,13 +139,17 @@ auth.get('/me', (c) => c.json({ user: requireUser(c) }));
 /**
  * Creates or refreshes the user and opens a session.
  *
- * The moderator list in config is the single source of truth: removing a login
+ * The moderator list in config is the single source of truth: removing an id
  * from it demotes that user on their next sign-in. A ban set in the database
  * survives every sign-in.
+ *
+ * MODERATORS holds GitHub numeric ids, not logins: a login is freed when its
+ * owner renames the account, and whoever registers it next would otherwise
+ * sign in as a moderator.
  */
 export async function createSession(env: Env, gh: GithubUser): Promise<string> {
-    const moderators = csv(env.MODERATORS).map((login) => login.toLowerCase());
-    const role: Role = moderators.includes(gh.login.toLowerCase()) ? 'moderator' : 'user';
+    const moderators = csv(env.MODERATORS);
+    const role: Role = moderators.includes(String(gh.id)) ? 'moderator' : 'user';
     const token = randomToken();
     const tokenHash = await sha256Hex(token);
 
@@ -163,17 +171,60 @@ export async function createSession(env: Env, gh: GithubUser): Promise<string> {
         env.DB.prepare(
             `INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, datetime('now', ?))`,
         ).bind(tokenHash, gh.id, `+${SESSION_DAYS} days`),
-        // Apps imported from the old repo belong to the catalog account until
-        // their author signs in. Only apps and wallpapers: their author line is
-        // the GitHub login, and nobody else can sign in as an existing login.
-        // Mods name Printables accounts, which anyone could register on GitHub,
-        // so a moderator hands those over by hand.
-        env.DB.prepare(
-            `UPDATE apps SET owner_id = ?1, updated_at = datetime('now')
-              WHERE owner_id = 0 AND kind IN ('app', 'wallpaper')
-                AND lower(author) = lower('@' || ?2)
-                AND NOT EXISTS (SELECT 1 FROM users WHERE id = ?1 AND role = 'banned')`,
-        ).bind(gh.id, gh.login),
     ]);
     return token;
+}
+
+const GITHUB_REPO = /^https:\/\/github\.com\/([^/]+)\/([^/#?]+)/i;
+
+/**
+ * Hands imported apps over to their author.
+ *
+ * Apps from the old repo belong to the catalog account. An app goes to the
+ * signing-in user only when its author line is their login AND GitHub says
+ * they own the repository the app's sources point at, checked by numeric id
+ * with their own token. The login alone is not proof: after a rename the old
+ * login can be registered by someone else.
+ *
+ * Mods (authors are Printables names) and apps whose sources live elsewhere,
+ * e.g. lilka-dev/examples, are handed over by a moderator instead.
+ */
+export async function claimImportedApps(env: Env, gh: GithubUser, githubToken: string): Promise<number> {
+    const { results } = await env.DB.prepare(
+        `SELECT id, sources_url FROM apps
+          WHERE owner_id = 0 AND kind IN ('app', 'wallpaper') AND lower(author) = lower('@' || ?)
+            AND NOT EXISTS (SELECT 1 FROM users WHERE id = ? AND role = 'banned')
+          LIMIT 50`,
+    )
+        .bind(gh.login, gh.id)
+        .all<{ id: number; sources_url: string }>();
+
+    const owned = new Map<string, boolean>();
+    const claim: number[] = [];
+    for (const app of results) {
+        const match = GITHUB_REPO.exec(app.sources_url);
+        if (!match || match[1].toLowerCase() !== gh.login.toLowerCase()) continue;
+        const repo = `${match[1]}/${match[2].replace(/\.git$/, '')}`.toLowerCase();
+        if (!owned.has(repo)) {
+            const response = await fetch(`https://api.github.com/repos/${repo}`, {
+                headers: {
+                    Authorization: `Bearer ${githubToken}`,
+                    Accept: 'application/vnd.github+json',
+                    'User-Agent': 'lilka-catalog-api',
+                },
+            });
+            const body = response.ok ? ((await response.json()) as { owner?: { id?: number } }) : null;
+            owned.set(repo, body?.owner?.id === gh.id);
+        }
+        if (owned.get(repo)) claim.push(app.id);
+    }
+    if (claim.length) {
+        await env.DB.prepare(
+            `UPDATE apps SET owner_id = ?, updated_at = datetime('now')
+              WHERE owner_id = 0 AND id IN (${claim.map(() => '?').join(',')})`,
+        )
+            .bind(gh.id, ...claim)
+            .run();
+    }
+    return claim.length;
 }

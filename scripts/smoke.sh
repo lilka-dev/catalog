@@ -148,6 +148,28 @@ call 200 "app after hand-over" "${mod[@]}" "$API/apps/Smoke_Import"
 check "author line kept after hand-over" "@smoke-dev" "$(jq -r .author "$work/body")"
 call 404 "import is not public before processing" "$API/catalog/apps/Smoke_Import/index.json"
 
+# --- security regressions -----------------------------------------------
+call 200 "huge page number is clamped" "$API/apps?page=99999999999999999999"
+call 409 "second report on the same app" "${fan[@]}" "${json[@]}" -X POST "$API/apps/smoke-hello/reports" -d '{"reason":"again"}'
+made=0; for i in $(seq 1 25); do
+    s=$(curl -s -o /dev/null -w '%{http_code}' "${fan[@]}" "${json[@]}" -X POST "$API/apps" \
+        -d "{\"slug\":\"fan-spam-$i\",\"kind\":\"app\",\"name\":\"s\",\"short_description\":\"s\",\"sources_url\":\"https://github.com/a/b\"}")
+    [ "$s" = 201 ] && made=$((made+1))
+done
+check "apps per account capped at 20" 20 "$made"
+call 200 "download name is encoded" -I "${user[@]}" "$API/files/smoke-hello/$version_id/hello.lua?download"
+grep -qi "filename\*=UTF-8''hello.lua" "$work/body" && dl=ok || dl=raw
+check "Content-Disposition uses filename*" ok "$dl"
+r2_list() { curl -sS "$API/cdn-cgi/local/explorer/api/r2/buckets/lilka-catalog-files/objects?limit=1000" | jq -r '.result[].key'; }
+check "infected files are deleted" 0 "$(r2_list | grep -c "smoke-hello/v/1.0.1/" || true)"
+call 201 "upload a version to reject" "${user[@]}" -X POST "$API/apps/smoke-case/versions" -F version=2.0.0 -F "files=@$work/case.stl"
+reject_id=$(jq -r .id "$work/body")
+call 200 "processor clears it" "${scanner[@]}" -X POST "$API/scan/versions/$reject_id" -F result=clean
+call 200 "moderator rejects it" "${mod[@]}" "${json[@]}" -X POST "$API/mod/versions/$reject_id/reject" -d '{"note":"not a case"}'
+sleep 1
+check "rejected files are deleted" 0 "$(r2_list | grep -c "smoke-case/v/2.0.0/" || true)"
+check "approved files are kept" 1 "$(r2_list | grep -c "smoke-hello/v/1.0.0/hello.lua" || true)"
+
 call 200 "owner hides app" "${user[@]}" "${json[@]}" -X PATCH "$API/apps/smoke-hello" -d '{"status":"hidden"}'
 call 404 "hidden app leaves the catalog" "$API/catalog/apps/smoke-hello/index.json"
 call 403 "author change needs moderator" "${user[@]}" "${json[@]}" -X PATCH "$API/apps/smoke-hello" -d '{"author":"@someone"}'

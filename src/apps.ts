@@ -16,6 +16,11 @@ import { MAX_UPLOAD_BYTES, createVersion, objectKey, readVersionForm } from './v
 const PAGE_SIZE = 24;
 /** Unreviewed uploads per user: keeps one account from flooding the queue. */
 const MAX_PENDING_PER_USER = 5;
+/** Apps per account, drafts included: stops slug squatting and spam. */
+const MAX_APPS_PER_USER = 20;
+/** Open reports per account; one per app is enough to reach a moderator. */
+const MAX_OPEN_REPORTS_PER_USER = 10;
+const MAX_PAGE = 1000;
 
 export interface AppRow {
     id: number;
@@ -244,7 +249,8 @@ export const apps = new Hono<AppEnv>();
 apps.get('/', async (c) => {
     const kind = c.req.query('kind');
     const q = c.req.query('q')?.trim();
-    const page = Math.max(1, Number.parseInt(c.req.query('page') ?? '1', 10) || 1);
+    // A huge page would overflow SQLite's OFFSET into an internal error
+    const page = Math.min(MAX_PAGE, Math.max(1, Number.parseInt(c.req.query('page') ?? '1', 10) || 1));
 
     const where = [`a.status = 'published'`];
     const params: unknown[] = [];
@@ -324,6 +330,12 @@ apps.post('/', async (c) => {
 
     const exists = await c.env.DB.prepare(`SELECT 1 FROM apps WHERE slug = ?`).bind(body.slug).first();
     if (exists) fail(409, 'slug is taken');
+    if (user.role !== 'moderator') {
+        const owned = await c.env.DB.prepare(`SELECT COUNT(*) AS n FROM apps WHERE owner_id = ?`)
+            .bind(user.id)
+            .first<{ n: number }>();
+        if ((owned?.n ?? 0) >= MAX_APPS_PER_USER) fail(429, `at most ${MAX_APPS_PER_USER} apps per account`);
+    }
 
     await c.env.DB.prepare(
         `INSERT INTO apps (slug, owner_id, kind, name_uk, name_en, short_uk, short_en,
@@ -503,6 +515,13 @@ apps.post('/:slug/reports', async (c) => {
     if (typeof reason !== 'string' || !reason.trim() || reason.length > 2000) {
         fail(400, 'reason is required (up to 2000 characters)');
     }
+    const open = await c.env.DB.prepare(
+        `SELECT COUNT(*) AS total, SUM(app_id = ?) AS here FROM reports WHERE user_id = ? AND resolved = 0`,
+    )
+        .bind(app.id, user.id)
+        .first<{ total: number; here: number | null }>();
+    if ((open?.here ?? 0) > 0) fail(409, 'you already reported this app; a moderator will look at it');
+    if ((open?.total ?? 0) >= MAX_OPEN_REPORTS_PER_USER) fail(429, 'too many open reports');
     await c.env.DB.prepare(`INSERT INTO reports (app_id, user_id, reason) VALUES (?, ?, ?)`)
         .bind(app.id, user.id, reason.trim())
         .run();
@@ -569,6 +588,9 @@ export async function serveFile(c: Context<AppEnv>) {
         // Versions never change after upload, so approved files cache forever
         'Cache-Control': isPublic ? 'public, max-age=31536000, immutable' : 'private, no-store',
     });
-    if (c.req.query('download') !== undefined) headers.set('Content-Disposition', `attachment; filename="${name}"`);
+    if (c.req.query('download') !== undefined) {
+        // Imported names may hold quotes or semicolons; the encoded form cannot break the header
+        headers.set('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(name)}`);
+    }
     return new Response(object.body, { headers });
 }
