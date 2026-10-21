@@ -1,0 +1,60 @@
+name: Process uploads
+
+# Scans new versions with ClamAV and generates icon_min, compressed images and
+# package.zip (api/scripts/process.py). The API dispatches `scan-version`
+# right after an upload; the schedule catches anything a lost dispatch left.
+#
+# This repository is public, so this log is too: process.py names an item only
+# once it is approved and public.
+on:
+  repository_dispatch:
+    types: [scan-version]
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: process
+  cancel-in-progress: false
+
+jobs:
+  process:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install and start ClamAV daemon
+        # The daemon loads the signatures once; clamscan would reload them per file
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clamav clamav-daemon
+          sudo systemctl stop clamav-freshclam || true
+          sudo freshclam
+          sudo systemctl start clamav-daemon
+          for i in $(seq 1 30); do
+            clamdscan --ping 1 2>/dev/null && break
+            echo "Waiting for clamd... ($i/30)"
+            sleep 2
+          done
+
+      - name: Process pending versions
+        env:
+          API_URL: ${{ vars.API_URL || 'https://lilka-catalog-api.black-ghost-ukraine.workers.dev' }}
+          SCAN_SECRET: ${{ secrets.SCAN_SECRET }}
+        run: python3 scripts/process.py

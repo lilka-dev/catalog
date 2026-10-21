@@ -5,9 +5,18 @@
 Вебсайт для перегляду й публікації застосунків, шпалер і модів для Лілки:
 [catalog.lilka.dev](https://catalog.lilka.dev).
 
-Сам каталог живе в [lilka-catalog-api](https://github.com/lilka-dev/catalog-api) —
-Cloudflare Worker із базою даних і сховищем файлів. Цей репозиторій — фронтенд
-і статичне дзеркало каталогу для пристроїв Лілка.
+Усе в цьому репозиторії:
+
+```
+site/                  сайт (GitHub Pages)
+api/                   lilka-catalog-api — Cloudflare Worker, у якому живе
+                       каталог (база D1, файли R2), див. api/README.md
+scripts/mirror_api.py  копіює каталог з API на Pages для пристроїв Лілка
+.github/workflows/
+  deploy-pages.yml     сайт і дзеркало: після push, щогодини й після схвалень
+  process.yml          перевірка ClamAV та обробка нових завантажень
+  api.yml              тести API на кожен PR; розгортання з main
+```
 
 ## Як опублікувати застосунок, шпалери чи мод
 
@@ -70,28 +79,28 @@ Pages, а щогодинний запуск зупиняється одразу,
 
 ## Локальна розробка
 
+Запустіть API локально (див. [api/README.md](api/README.md)), скопіюйте його
+каталог у `site/` і запустіть сайт:
+
 ```bash
-cd site
-python3 -m http.server 8000
+pip install -r requirements.txt
+MIRROR_SECRET=dev-mirror-secret python3 scripts/mirror_api.py --api http://localhost:8787 --out site
+cd site && python3 -m http.server 8000
 ```
 
-Відкрийте http://localhost:8000. Щоб працювати з локальним API
-(`npm run dev` у lilka-catalog-api), виконайте в консолі браузера:
+Відкрийте http://localhost:8000 і, щоб вхід і публікація йшли в локальний API,
+виконайте в консолі браузера:
 
 ```js
 localStorage.setItem('lilka-api-url', 'http://localhost:8787')
 ```
 
-Зібрати дзеркало локально:
-
-```bash
-pip install -r requirements.txt
-python3 scripts/mirror_api.py --api https://lilka-catalog-api.black-ghost-ukraine.workers.dev --out build
-```
+Скопійовані `site/apps/`, `site/wallpapers/`, `site/mods/` і `site/authors.json`
+не комітяться.
 
 ## Модераторам
 
-Модератори — це логіни GitHub у `MODERATORS` у `wrangler.toml` API. Вони
+Модератори — це числові id користувачів GitHub у `MODERATORS` у `api/wrangler.toml`. Вони
 бачать вкладку **Модерація**: версії, що чекають перевірки, з переглядом коду
 й зображень, контрольними сумами й результатом антивірусу; схвалити,
 відхилити з причиною, заблокувати автора; відкриті скарги.
