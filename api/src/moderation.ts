@@ -3,6 +3,7 @@ import type { AppEnv } from './env';
 import {
     APP_SELECT,
     displayAuthor,
+    ratingSummary,
     findApp,
     kindDir,
     readKind,
@@ -113,11 +114,20 @@ moderation.post('/versions/:id/reject', async (c) => {
     return c.json({ ok: true });
 });
 
+/** Open reports, or with ?slug= every report on that item, resolved ones included. */
 moderation.get('/reports', async (c) => {
-    const { results } = await c.env.DB.prepare(
-        `SELECT r.id, r.reason, r.created_at, a.slug, u.login AS reporter
-           FROM reports r JOIN apps a ON a.id = r.app_id JOIN users u ON u.id = r.user_id
-          WHERE r.resolved = 0 ORDER BY r.created_at ASC LIMIT 100`,
+    const slug = c.req.query('slug');
+    const { results } = await (slug
+        ? c.env.DB.prepare(
+              `SELECT r.id, r.reason, r.resolved, r.created_at, a.slug, u.login AS reporter
+                 FROM reports r JOIN apps a ON a.id = r.app_id JOIN users u ON u.id = r.user_id
+                WHERE a.slug = ? ORDER BY r.id DESC LIMIT 100`,
+          ).bind(slug)
+        : c.env.DB.prepare(
+              `SELECT r.id, r.reason, r.resolved, r.created_at, a.slug, u.login AS reporter
+                 FROM reports r JOIN apps a ON a.id = r.app_id JOIN users u ON u.id = r.user_id
+                WHERE r.resolved = 0 ORDER BY r.created_at ASC LIMIT 100`,
+          )
     ).all();
     return c.json({ items: results });
 });
@@ -133,7 +143,7 @@ moderation.post('/reports/:id/resolve', async (c) => {
  */
 moderation.get('/users', async (c) => {
     const { results } = await c.env.DB.prepare(
-        `SELECT u.id, u.login, u.name, u.avatar_url, u.role, u.created_at,
+        `SELECT u.id, u.login, u.name, u.avatar_url, u.role, u.created_at, u.trusted, u.mod_note IS NOT NULL AS has_note,
                 (SELECT COUNT(*) FROM apps a WHERE a.owner_id = u.id) AS items
            FROM users u ORDER BY u.id = 0 DESC, u.login COLLATE NOCASE ASC LIMIT 1000`,
     ).all<{
@@ -143,23 +153,36 @@ moderation.get('/users', async (c) => {
         avatar_url: string | null;
         role: string;
         created_at: string;
+        trusted: number;
+        has_note: number;
         items: number;
     }>();
     return c.json({
         items: results.map((u) => ({
             ...u,
+            trusted: !!u.trusted,
+            has_note: !!u.has_note,
             // The catalog account is not a person: it holds imports until handed over
             system: u.id === 0,
         })),
     });
 });
 
-/** Every item with its owner, drafts and hidden ones included, for the Apps tab. */
+/**
+ * Every item with its owner, drafts and hidden ones included, for the All
+ * items tab: one query, the counts as subqueries over indexed columns.
+ */
 moderation.get('/apps', async (c) => {
     const { results } = await c.env.DB.prepare(
-        `SELECT a.slug, a.kind, a.status, a.author, a.name_uk, a.name_en, a.owner_id, a.created_at,
-                u.login AS owner_login
-           FROM apps a JOIN users u ON u.id = a.owner_id
+        `SELECT a.slug, a.kind, a.status, a.author, a.name_uk, a.name_en, a.owner_id, a.created_at, a.updated_at,
+                u.login AS owner_login, cb.login AS creator_login,
+                (SELECT COUNT(*) FROM versions v WHERE v.app_id = a.id) AS versions,
+                (SELECT COUNT(*) FROM versions v WHERE v.app_id = a.id
+                    AND v.status IN ('pending_scan', 'pending_review')) AS pending,
+                (SELECT COUNT(*) FROM ratings r WHERE r.app_id = a.id) AS rating_count,
+                (SELECT AVG(stars) FROM ratings r WHERE r.app_id = a.id) AS rating_avg,
+                (SELECT COUNT(*) FROM reports p WHERE p.app_id = a.id AND p.resolved = 0) AS open_reports
+           FROM apps a JOIN users u ON u.id = a.owner_id LEFT JOIN users cb ON cb.id = a.created_by
           ORDER BY a.kind, a.slug LIMIT 2000`,
     ).all<{
         slug: string;
@@ -170,7 +193,14 @@ moderation.get('/apps', async (c) => {
         name_en: string | null;
         owner_id: number;
         created_at: string;
+        updated_at: string;
         owner_login: string;
+        creator_login: string | null;
+        versions: number;
+        pending: number;
+        rating_count: number;
+        rating_avg: number | null;
+        open_reports: number;
     }>();
     return c.json({
         items: results.map((a) => ({
@@ -179,11 +209,148 @@ moderation.get('/apps', async (c) => {
             status: a.status,
             name: { uk: a.name_uk, en: a.name_en },
             author: displayAuthor(a),
+            author_line: a.author,
             owner: a.owner_login,
             unclaimed: a.owner_id === 0,
+            // null: made by the import
+            created_by: a.creator_login,
             created_at: a.created_at,
+            updated_at: a.updated_at,
+            versions: a.versions,
+            pending: a.pending,
+            rating: ratingSummary(a.rating_count, a.rating_avg === null ? null : a.rating_avg * a.rating_count),
+            open_reports: a.open_reports,
         })),
     });
+});
+
+/**
+ * Deletes an item for good: its versions, ratings and reports (cascade) and
+ * every file in R2. For spam and mistakes; hiding is the reversible option.
+ * The body must repeat the slug, so a stray request cannot delete anything.
+ */
+moderation.delete('/apps/:slug', async (c) => {
+    const slug = c.req.param('slug');
+    const { confirm } = await readJson<{ confirm?: unknown }>(c).catch(() => ({ confirm: undefined }));
+    if (confirm !== slug) fail(400, 'confirm must repeat the slug');
+    const app = await findApp(c.env, slug);
+    if (!app) fail(404, 'app not found');
+    const { results } = await c.env.DB.prepare(`SELECT storage_prefix FROM versions WHERE app_id = ?`)
+        .bind(app.id)
+        .all<{ storage_prefix: string }>();
+    await c.env.DB.batch([
+        // latest_version_id points into versions; clear it before the cascade
+        c.env.DB.prepare(`UPDATE apps SET latest_version_id = NULL WHERE id = ?`).bind(app.id),
+        c.env.DB.prepare(`DELETE FROM apps WHERE id = ?`).bind(app.id),
+    ]);
+    c.executionCtx.waitUntil(
+        (async () => {
+            for (const v of results) await deleteVersionFiles(c.env, v.storage_prefix);
+        })(),
+    );
+    if (app.status === 'published') c.executionCtx.waitUntil(dispatch(c.env, c.env.CATALOG_REPO, 'api-sync', {}));
+    return c.json({ ok: true });
+});
+
+async function findUser(c: Parameters<MiddlewareHandler<AppEnv>>[0]) {
+    const user = await c.env.DB.prepare(
+        `SELECT id, login, name, avatar_url, role, created_at, bio, blog, location, company, trusted, mod_note
+           FROM users WHERE login = ? COLLATE NOCASE`,
+    )
+        .bind(c.req.param('login'))
+        .first<{
+            id: number;
+            login: string;
+            name: string | null;
+            avatar_url: string | null;
+            role: string;
+            created_at: string;
+            bio: string | null;
+            blog: string | null;
+            location: string | null;
+            company: string | null;
+            trusted: number;
+            mod_note: string | null;
+        }>();
+    if (!user) fail(404, 'user not found');
+    return user;
+}
+
+/** Everything about one user for the Users tab, in one batch of indexed queries. */
+moderation.get('/users/:login', async (c) => {
+    const user = await findUser(c);
+    const [items, stats, reports] = await c.env.DB.batch<Record<string, unknown>>([
+        c.env.DB.prepare(
+            `SELECT a.slug, a.kind, a.status, a.name_uk, a.name_en, a.created_at, a.created_by = a.owner_id AS own
+               FROM apps a WHERE a.owner_id = ? ORDER BY a.created_at DESC LIMIT 500`,
+        ).bind(user.id),
+        c.env.DB.prepare(
+            `SELECT (SELECT COUNT(*) FROM apps WHERE created_by = ?1) AS created,
+                    (SELECT COUNT(*) FROM apps WHERE created_by = ?1 AND created_at > datetime('now', '-1 day')) AS created_today,
+                    (SELECT COUNT(*) FROM ratings WHERE user_id = ?1) AS ratings,
+                    (SELECT COUNT(*) FROM sessions WHERE user_id = ?1 AND expires_at > datetime('now')) AS sessions,
+                    -- Sessions last 30 days from sign-in
+                    (SELECT datetime(MAX(expires_at), '-30 days') FROM sessions WHERE user_id = ?1) AS last_sign_in`,
+        ).bind(user.id),
+        c.env.DB.prepare(
+            `SELECT r.id, r.reason, r.resolved, r.created_at, a.slug
+               FROM reports r JOIN apps a ON a.id = r.app_id WHERE r.user_id = ? ORDER BY r.id DESC LIMIT 50`,
+        ).bind(user.id),
+    ]);
+    return c.json({
+        user: { ...user, trusted: !!user.trusted, system: user.id === 0 },
+        stats: stats.results[0],
+        items: items.results.map((a) => ({
+            slug: a.slug,
+            kind: a.kind,
+            status: a.status,
+            name: { uk: a.name_uk, en: a.name_en },
+            created_at: a.created_at,
+            // false: handed over to them (an import, or another user's item)
+            own: !!a.own,
+        })),
+        reports: reports.results,
+    });
+});
+
+/** What moderators may change about a user; the profile itself comes from GitHub at every sign-in. */
+moderation.patch('/users/:login', async (c) => {
+    const user = await findUser(c);
+    const body = await readJson<{ trusted?: unknown; note?: unknown }>(c);
+    const sets: string[] = [];
+    const params: unknown[] = [];
+    if (body.trusted !== undefined) {
+        if (typeof body.trusted !== 'boolean') fail(400, 'trusted must be true or false');
+        if (user.id === 0) fail(409, 'the catalog account is not a person');
+        sets.push('trusted = ?');
+        params.push(body.trusted ? 1 : 0);
+    }
+    if (body.note !== undefined) {
+        if (body.note !== null && (typeof body.note !== 'string' || body.note.length > 2000)) {
+            fail(400, 'note must be text up to 2000 characters, or null');
+        }
+        sets.push('mod_note = ?');
+        params.push(typeof body.note === 'string' && body.note.trim() ? body.note.trim() : null);
+    }
+    if (!sets.length) fail(400, 'nothing to update');
+    await c.env.DB.prepare(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`)
+        .bind(...params, user.id)
+        .run();
+    return c.json({ ok: true });
+});
+
+/** Ends every session of the user, e.g. after a leaked token. They can sign in again. */
+moderation.post('/users/:login/sign-out', async (c) => {
+    const user = await findUser(c);
+    const result = await c.env.DB.prepare(`DELETE FROM sessions WHERE user_id = ?`).bind(user.id).run();
+    return c.json({ ok: true, sessions: result.meta.changes ?? 0 });
+});
+
+/** Removes every rating the user gave, e.g. a brigade; the averages follow with the next mirror run. */
+moderation.delete('/users/:login/ratings', async (c) => {
+    const user = await findUser(c);
+    const result = await c.env.DB.prepare(`DELETE FROM ratings WHERE user_id = ?`).bind(user.id).run();
+    return c.json({ ok: true, ratings: result.meta.changes ?? 0 });
 });
 
 /** A ban also hides every app of the user, drops their ratings and ends their sessions. */

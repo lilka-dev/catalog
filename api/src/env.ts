@@ -30,6 +30,8 @@ export interface User {
     name: string | null;
     avatar_url: string | null;
     role: Role;
+    /** Set by a moderator: no per-account item limits (migration 0008). */
+    trusted: number;
 }
 
 export type AppEnv = {

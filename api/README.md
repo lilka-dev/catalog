@@ -189,11 +189,16 @@ All bodies are JSON unless noted. Authenticated calls send
 | GET | `/users/:login/apps[?versions]` | user | Apps of a user (all of them, with versions, for the user themself or a moderator) |
 | GET | `/files/:slug/:version/:name` | owner, mod | File by version id, for "My apps" and moderation previews |
 | GET | `/mod/queue?status=` | mod | Versions by status, default `pending_review` |
-| GET | `/mod/apps` | mod | Every item with its owner, drafts and hidden ones included |
-| GET | `/mod/users` | mod | Everyone who has signed in, with role and item count |
+| GET | `/mod/apps` | mod | Every item with owner, creator, version and pending counts, rating, open reports |
+| DELETE | `/mod/apps/:slug` | mod | `{ "confirm": "<slug>" }`: deletes the item, its versions, ratings, reports and R2 files |
+| GET | `/mod/users` | mod | Everyone who has signed in, with role, trusted, note flag and item count |
+| GET | `/mod/users/:login` | mod | Profile, note, trusted, activity (created, ratings, sessions, last sign-in), items, reports filed |
+| PATCH | `/mod/users/:login` | mod | `{ "trusted"?: bool, "note"?: string \| null }`; trusted lifts the per-account item limits |
+| POST | `/mod/users/:login/sign-out` | mod | Ends every session of the user |
+| DELETE | `/mod/users/:login/ratings` | mod | Removes every rating the user gave |
 | POST | `/mod/versions/:id/approve` | mod | `{ "note"?: "..." }` |
 | POST | `/mod/versions/:id/reject` | mod | `{ "note": "reason" }` |
-| GET | `/mod/reports` | mod | Open reports |
+| GET | `/mod/reports[?slug=]` | mod | Open reports, or every report on one item |
 | POST | `/mod/reports/:id/resolve` | mod | |
 | POST | `/mod/users/:login/ban` / `unban` | mod | Ban hides all their apps and ends sessions |
 | POST | `/mod/import[?replace]` | mod | One app from the old repo (`scripts/import_catalog.py`) |
