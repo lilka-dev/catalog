@@ -50,10 +50,8 @@ const writeLimit: MiddlewareHandler<AppEnv> = async (c, next) => {
 app.use('/scan/*', machineSecret('SCAN_SECRET'));
 app.use('/catalog/*', machineSecret('MIRROR_SECRET'));
 
-app.use('*', async (c, next) => {
-    if (c.req.path.startsWith('/scan/') || c.req.path.startsWith('/catalog/')) return next();
-    return ipLimit(c, next);
-});
+// CORS comes before the rate limit, so the site can read a 429 and say what
+// happened instead of seeing a network error
 app.use('*', async (c, next) => {
     // Only the catalog site calls the API from a browser
     if (c.req.path.startsWith('/scan/') || c.req.path.startsWith('/catalog/')) return next();
@@ -63,6 +61,10 @@ app.use('*', async (c, next) => {
         allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
         maxAge: 86400,
     })(c, next);
+});
+app.use('*', async (c, next) => {
+    if (c.req.path.startsWith('/scan/') || c.req.path.startsWith('/catalog/')) return next();
+    return ipLimit(c, next);
 });
 app.use('*', sessionMiddleware);
 app.use('*', writeLimit);

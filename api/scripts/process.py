@@ -202,8 +202,7 @@ def process(session, api, version_id, prefix=""):
         if infected:
             detail = "\n".join(f"{name}: {v['detail']}" for name, v in infected.items())
             log("  INFECTED")
-            report(session, api, version_id, {"result": "infected", "detail": detail}, [], info)
-            return
+            return report(session, api, version_id, {"result": "infected", "detail": detail}, [], info)
         if errors:
             # Leave it pending: the next run retries instead of passing unscanned files
             log(f"  scan failed for {len(errors)} file(s), will retry")
@@ -258,7 +257,7 @@ def process(session, api, version_id, prefix=""):
                 "av_scan": verdicts[name],
             })
 
-        report(session, api, version_id, {
+        return report(session, api, version_id, {
             "result": "clean",
             "detail": "ClamAV: " + (subprocess.run([CLAMSCAN or CLAMDSCAN, "--version"], capture_output=True, text=True).stdout.strip()),
             "security": json.dumps(security),
@@ -283,6 +282,17 @@ def report(session, api, version_id, fields, files, info):
         log(f"  -> approved: {info['app']['dir']}/{info['app']['slug']} {info['version']['version']}")
     else:
         log(f"  -> {status}")
+    return status
+
+
+def write_outputs(statuses):
+    """Counts for the notify job; numbers only, nothing an uploader wrote."""
+    path = os.environ.get("GITHUB_OUTPUT")
+    if not path:
+        return
+    with open(path, "a") as out:
+        out.write(f"review={statuses.count('pending_review')}\n")
+        out.write(f"infected={statuses.count('infected')}\n")
 
 
 def main():
@@ -305,9 +315,10 @@ def main():
     log(f"{len(ids)} item(s) to process")
 
     failed = 0
+    statuses = []
     for number, version_id in enumerate(ids, 1):
         try:
-            process(session, api, version_id, f"[{number}/{len(ids)}]")
+            statuses.append(process(session, api, version_id, f"[{number}/{len(ids)}]"))
         except Exception as e:
             failed += 1
             # Exception texts can hold URLs with file names of a private draft;
@@ -315,6 +326,7 @@ def main():
             status = getattr(getattr(e, "response", None), "status_code", None)
             log(f"[{number}/{len(ids)}] version id {version_id}: failed: {type(e).__name__}"
                 + (f" (HTTP {status})" if status else ""))
+    write_outputs(statuses)
     if failed:
         sys.exit(f"{failed} item(s) failed")
 
