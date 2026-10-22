@@ -100,6 +100,19 @@ const COMMUNITY_STRINGS = {
     'hand-over': 'Передати автору',
     'hand-over-prompt': 'GitHub-логін автора (він має хоча б раз увійти на сайт):',
     'unclaimed': 'ще не передано автору',
+    'mod-apps': 'Усі елементи',
+    'mod-users': 'Користувачі',
+    'owner': 'Власник',
+    'confirm-owner': 'Передати «{slug}» користувачу {login}?',
+    'role-user': 'користувач',
+    'role-moderator': 'модератор',
+    'role-banned': 'заблоковано',
+    'system-account': 'обліковий запис каталогу',
+    'items-count': 'елементів: {n}',
+    'joined': 'з {date}',
+    'unban': 'Розблокувати',
+    'confirm-unban': 'Розблокувати {login}? Приховані додатки треба буде опублікувати знову вручну.',
+    'filter': 'Пошук',
     'view': 'Переглянути',
     'download': 'Завантажити',
     'by': 'від',
@@ -209,6 +222,19 @@ const COMMUNITY_STRINGS = {
     'hand-over': 'Hand over to author',
     'hand-over-prompt': 'GitHub login of the author (they must have signed in once):',
     'unclaimed': 'not handed over yet',
+    'mod-apps': 'All items',
+    'mod-users': 'Users',
+    'owner': 'Owner',
+    'confirm-owner': 'Hand "{slug}" over to {login}?',
+    'role-user': 'user',
+    'role-moderator': 'moderator',
+    'role-banned': 'banned',
+    'system-account': 'catalog account',
+    'items-count': 'items: {n}',
+    'joined': 'since {date}',
+    'unban': 'Unban',
+    'confirm-unban': 'Unban {login}? Their hidden apps have to be published again by hand.',
+    'filter': 'Search',
     'view': 'View',
     'download': 'Download',
     'by': 'by',
@@ -342,8 +368,9 @@ class CommunityUI {
         const {user} = await this.request('GET', '/auth/me');
         this.user = user;
       } catch (e) {
-        // Expired or revoked: behave as signed out
-        this.saveToken(null);
+        // Expired or revoked: behave as signed out. A rate limit or a network
+        // hiccup is not a reason to sign the user out for good
+        if (e.status === 401) this.saveToken(null);
       }
     }
     this.renderAccount();
@@ -1074,6 +1101,29 @@ class CommunityUI {
 
   async showModeration() {
     const statuses = ['pending_review', 'pending_scan', 'infected', 'rejected', 'approved'];
+    const tabs = [
+      ...statuses.map(s => [s, this.t(`status-${s}`)]),
+      ['apps', this.t('mod-apps')],
+      ['users', this.t('mod-users')],
+    ];
+    const filter = `
+      <h2 class="community-title">${this.esc(this.t('mod-title'))}</h2>
+      <div class="community-filter">
+        ${tabs.map(([s, label]) => `<button class="page-btn ${s === this.modStatus ? 'active' : ''}" data-status="${s}">${
+            this.esc(label)}</button>`).join('')}
+      </div>`;
+    const bindTabs = (box) => box.querySelectorAll('[data-status]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.modStatus = btn.dataset.status;
+        this.show('mod');
+      });
+    });
+    if (this.modStatus === 'apps' || this.modStatus === 'users') {
+      await this.showModerationLists(filter);
+      bindTabs(this.container());
+      return;
+    }
+
     const [queue, reports] = await Promise.all([
       this.request('GET', `/mod/queue?status=${this.modStatus}`),
       this.request('GET', '/mod/reports'),
@@ -1081,11 +1131,7 @@ class CommunityUI {
     const box = this.container();
 
     box.innerHTML = `
-      <h2 class="community-title">${this.esc(this.t('mod-title'))}</h2>
-      <div class="community-filter">
-        ${statuses.map(s => `<button class="page-btn ${s === this.modStatus ? 'active' : ''}" data-status="${s}">${
-            this.esc(this.t(`status-${s}`))}</button>`).join('')}
-      </div>
+      ${filter}
       <div class="community-list">
         ${queue.items.length ? queue.items.map(item => this.renderQueueItem(item)).join('') :
             `<p class="community-hint">${this.esc(this.t('mod-empty'))}</p>`}
@@ -1107,12 +1153,7 @@ class CommunityUI {
           </div>`).join('') : `<p class="community-hint">${this.esc(this.t('mod-no-reports'))}</p>`}
       </div>`;
 
-    box.querySelectorAll('[data-status]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        this.modStatus = btn.dataset.status;
-        this.show('mod');
-      });
-    });
+    bindTabs(box);
     box.querySelectorAll('[data-mod]').forEach(btn => {
       btn.addEventListener('click', () => this.onModAction(btn));
     });
@@ -1123,6 +1164,117 @@ class CommunityUI {
       });
     });
     this.bindFileButtons(box);
+  }
+
+  /**
+   * The Apps and Users tabs. Both need the user list (the owner selector
+   * offers everyone who has signed in), so they share one pair of requests.
+   */
+  async showModerationLists(filter) {
+    const [apps, users] = await Promise.all([
+      this.modStatus === 'apps' ? this.request('GET', '/mod/apps') : null,
+      this.request('GET', '/mod/users'),
+    ]);
+    const box = this.container();
+    const options = users.items.filter(u => u.role !== 'banned')
+        .map(u => `<option value="${this.esc(u.login)}">${this.esc(u.system ? `${u.login} (${this.t('system-account')})` : u.login)}</option>`)
+        .join('');
+    const rows = this.modStatus === 'apps' ?
+        apps.items.map(a => this.renderModApp(a, options)) :
+        users.items.map(u => this.renderModUser(u));
+
+    box.innerHTML = `
+      ${filter}
+      <div class="form-field mod-search">
+        <input type="search" placeholder="${this.esc(this.t('filter'))}" aria-label="${this.esc(this.t('filter'))}">
+      </div>
+      <div class="community-list">
+        ${rows.length ? rows.join('') : `<p class="community-hint">${this.esc(this.t('mod-empty'))}</p>`}
+      </div>`;
+
+    // Filtering happens here: the lists are complete, so typing costs no requests
+    const search = box.querySelector('.mod-search input');
+    search.addEventListener('input', () => {
+      const q = search.value.trim().toLowerCase();
+      box.querySelectorAll('[data-search]').forEach(card => {
+        card.hidden = !!q && !card.dataset.search.includes(q);
+      });
+    });
+
+    box.querySelectorAll('select[data-owner-of]').forEach(select => {
+      select.value = select.dataset.current;
+      select.addEventListener('change', async () => {
+        const slug = select.dataset.ownerOf;
+        const login = select.value;
+        if (!confirm(this.t('confirm-owner', {slug, login}))) {
+          select.value = select.dataset.current;
+          return;
+        }
+        try {
+          await this.request('PATCH', `/apps/${encodeURIComponent(slug)}`, {owner: login});
+          select.dataset.current = login;
+        } catch (error) {
+          select.value = select.dataset.current;
+          alert(this.t('error', {message: error.message}));
+        }
+      });
+    });
+    box.querySelectorAll('[data-user-action]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const login = btn.dataset.login;
+        const action = btn.dataset.userAction;
+        if (!confirm(this.t(`confirm-${action}`, {login}))) return;
+        try {
+          await this.request('POST', `/mod/users/${encodeURIComponent(login)}/${action}`);
+          this.show('mod');
+        } catch (error) {
+          alert(this.t('error', {message: error.message}));
+        }
+      });
+    });
+  }
+
+  renderModApp(a, options) {
+    const name = a.name[this.app.currentLang] || a.name.uk || a.name.en || a.slug;
+    const search = [a.slug, name, a.author, a.owner].join(' ').toLowerCase();
+    return `
+      <div class="community-card" data-search="${this.esc(search)}">
+        <div class="community-card-head">
+          <div>
+            <h3>${this.esc(name)}</h3>
+            <code class="community-slug">${this.esc(a.slug)}</code>
+            <span class="community-hint">${this.esc(a.kind)} · ${this.esc(a.status)} · ${this.esc(this.t('by'))} ${this.esc(a.author)}${
+                a.unclaimed ? ` · ${this.esc(this.t('unclaimed'))}` : ''}</span>
+          </div>
+          <label class="form-field mod-owner">
+            <span class="form-label">${this.esc(this.t('owner'))}</span>
+            <select data-owner-of="${this.esc(a.slug)}" data-current="${this.esc(a.owner)}">${options}</select>
+          </label>
+        </div>
+      </div>`;
+  }
+
+  renderModUser(u) {
+    const search = [u.login, u.name || ''].join(' ').toLowerCase();
+    const role = u.system ? this.t('system-account') : this.t(`role-${u.role}`);
+    // The catalog account and moderators cannot be banned (the API refuses too)
+    const action = u.system || u.role === 'moderator' ? '' : u.role === 'banned' ?
+        `<button class="btn-sm" data-user-action="unban" data-login="${this.esc(u.login)}">${this.esc(this.t('unban'))}</button>` :
+        `<button class="btn-sm danger" data-user-action="ban" data-login="${this.esc(u.login)}">${this.esc(this.t('ban'))}</button>`;
+    const profile = u.system ? '' :
+        ` · <a href="https://github.com/${encodeURIComponent(u.login)}" target="_blank" rel="noopener noreferrer">GitHub</a>`;
+    return `
+      <div class="community-card" data-search="${this.esc(search)}">
+        <div class="community-card-head">
+          <div>
+            <h3>${this.esc(u.name || u.login)}</h3>
+            <code class="community-slug">@${this.esc(u.login)}</code>
+            <span class="community-hint">${this.esc(role)} · ${this.esc(this.t('items-count', {n: u.items}))} · ${
+                this.esc(this.t('joined', {date: this.formatTime(u.created_at)}))}${profile}</span>
+          </div>
+          <div class="community-actions">${action}</div>
+        </div>
+      </div>`;
   }
 
   renderQueueItem({app, version}) {

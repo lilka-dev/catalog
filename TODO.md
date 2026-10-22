@@ -49,7 +49,9 @@ has to be ready first.
   Actions secrets; the repository only holds a pointer README now.
 - Set the `DISPATCH_TOKEN` secret (fine-grained PAT for `lilka-dev/catalog`,
   Contents: Read and write) so uploads are processed and approvals reach
-  devices within minutes instead of the 6-hourly and hourly schedules.
+  devices within minutes instead of the 6-hourly and hourly schedules. The
+  moderation issue comes from the processing run, so without it the
+  notification about a new upload can also be up to 6 hours late.
 - Branch protection on `main`: require a PR, the **API / test** check and
   code-owner review; optionally a reviewer for the `production` environment.
 - "Publish" from the web IDE (lilka-web-ide), and running Lua apps from the

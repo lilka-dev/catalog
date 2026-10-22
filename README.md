@@ -106,11 +106,15 @@ The copied `site/apps/`, `site/wallpapers/`, `site/mods/` and
 Moderators are GitHub numeric user ids in `MODERATORS` of `api/wrangler.toml`.
 They see a **Moderation** tab: versions waiting for review with code and image
 preview, checksums and the antivirus result; approve, reject with a reason, ban
-an author; open reports.
+an author; open reports. **All items** lists every app, wallpaper and mod with
+an owner selector, **Users** everyone who has signed in, with ban and unban.
+
+New uploads are announced in a GitHub issue labelled `moderation` (see
+[api/README.md](api/README.md#lifecycle-of-an-upload)).
 
 Apps imported from the old repository belong to the `lilka-catalog` account
-and keep their original author line. A moderator can hand one over to its
-author once they have signed in: `PATCH /apps/<id>` with `{"owner": "<login>"}`.
+and keep their original author line. A moderator hands one over to its author
+in **All items** once the author has signed in at least once.
 
 ## License
 

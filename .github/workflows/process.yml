@@ -24,6 +24,9 @@ jobs:
   process:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    outputs:
+      review: ${{ steps.process.outputs.review }}
+      infected: ${{ steps.process.outputs.infected }}
     defaults:
       run:
         working-directory: api
@@ -54,7 +57,51 @@ jobs:
           done
 
       - name: Process pending versions
+        id: process
         env:
           API_URL: ${{ vars.API_URL || 'https://lilka-catalog-api.black-ghost-ukraine.workers.dev' }}
           SCAN_SECRET: ${{ secrets.SCAN_SECRET }}
         run: python3 scripts/process.py
+
+  # Tells the moderators that something waits for them: one open issue
+  # assigned to them, with a comment for every later batch, so GitHub sends an
+  # email and a mobile notification. Close the issue once the queue is empty;
+  # the next upload opens a new one.
+  #
+  # A job of its own: only it may write issues, and it never touches the
+  # uploaded files. The text holds counts only, nothing an uploader wrote,
+  # because the issue is public.
+  notify:
+    needs: process
+    if: ${{ !cancelled() && (needs.process.outputs.review > 0 || needs.process.outputs.infected > 0) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      # GitHub logins, comma-separated
+      NOTIFY: ${{ vars.MODERATION_NOTIFY || 'black-ghost-off' }}
+      REVIEW: ${{ needs.process.outputs.review }}
+      INFECTED: ${{ needs.process.outputs.infected }}
+      SITE: https://catalog.lilka.dev/?type=mod
+    steps:
+      - name: Open or update the moderation issue
+        run: |
+          set -euo pipefail
+          [[ "$REVIEW" =~ ^[0-9]*$ && "$INFECTED" =~ ^[0-9]*$ ]] || exit 1
+          [[ "$NOTIFY" =~ ^[A-Za-z0-9,-]+$ ]] || { echo "MODERATION_NOTIFY must be logins"; exit 1; }
+          mentions=$(echo "$NOTIFY" | tr ',' '\n' | sed '/^$/d; s/^/@/' | paste -sd' ' -)
+          body="${REVIEW:-0} new item(s) waiting for review"
+          [ "${INFECTED:-0}" -gt 0 ] && body="$body, ${INFECTED} blocked by the antivirus"
+          body="$body: $SITE"
+
+          gh label create moderation --color FBCA04 --description "Uploads waiting for a moderator" 2>/dev/null || true
+          issue=$(gh issue list --label moderation --state open --limit 1 --json number --jq '.[0].number // empty')
+          if [ -n "$issue" ]; then
+            gh issue comment "$issue" --body "$mentions $body"
+          else
+            gh issue create --title "Uploads waiting for review" --label moderation \
+              --assignee "$NOTIFY" --body "$mentions $body"$'\n\n'"Close this issue once the queue is empty; the next upload opens a new one."
+          fi

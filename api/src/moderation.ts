@@ -127,6 +127,65 @@ moderation.post('/reports/:id/resolve', async (c) => {
     return c.json({ ok: true });
 });
 
+/**
+ * Everyone who has signed in, for the Users tab and the owner selector.
+ * One query with the item counts; the catalog has a few hundred users at most.
+ */
+moderation.get('/users', async (c) => {
+    const { results } = await c.env.DB.prepare(
+        `SELECT u.id, u.login, u.name, u.avatar_url, u.role, u.created_at,
+                (SELECT COUNT(*) FROM apps a WHERE a.owner_id = u.id) AS items
+           FROM users u ORDER BY u.id = 0 DESC, u.login COLLATE NOCASE ASC LIMIT 1000`,
+    ).all<{
+        id: number;
+        login: string;
+        name: string | null;
+        avatar_url: string | null;
+        role: string;
+        created_at: string;
+        items: number;
+    }>();
+    return c.json({
+        items: results.map((u) => ({
+            ...u,
+            // The catalog account is not a person: it holds imports until handed over
+            system: u.id === 0,
+        })),
+    });
+});
+
+/** Every item with its owner, drafts and hidden ones included, for the Apps tab. */
+moderation.get('/apps', async (c) => {
+    const { results } = await c.env.DB.prepare(
+        `SELECT a.slug, a.kind, a.status, a.author, a.name_uk, a.name_en, a.owner_id, a.created_at,
+                u.login AS owner_login
+           FROM apps a JOIN users u ON u.id = a.owner_id
+          ORDER BY a.kind, a.slug LIMIT 2000`,
+    ).all<{
+        slug: string;
+        kind: string;
+        status: string;
+        author: string | null;
+        name_uk: string | null;
+        name_en: string | null;
+        owner_id: number;
+        created_at: string;
+        owner_login: string;
+    }>();
+    return c.json({
+        items: results.map((a) => ({
+            slug: a.slug,
+            kind: a.kind,
+            status: a.status,
+            name: { uk: a.name_uk, en: a.name_en },
+            author: displayAuthor(a),
+            owner: a.owner_login,
+            unclaimed: a.owner_id === 0,
+            created_at: a.created_at,
+        })),
+    });
+});
+
 /** A ban also hides every app of the user and ends their sessions. */
 moderation.post('/users/:login/ban', async (c) => {
     const user = await c.env.DB.prepare(`SELECT id, role FROM users WHERE login = ? COLLATE NOCASE`)

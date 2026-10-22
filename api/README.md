@@ -78,6 +78,13 @@ mirror is a plain copy of that tree.
 
 Imported apps (below) skip step 4: they were reviewed as repo pull requests.
 
+When a run of the processing workflow leaves items waiting for review, its
+`notify` job opens an issue labelled `moderation` assigned to the moderators
+(or comments on the open one), so GitHub sends them an email and a push
+notification. The issue only holds counts, because the repository is public.
+Who gets it: the `MODERATION_NOTIFY` repository variable, comma-separated
+logins, `black-ghost-off` by default. Close the issue once the queue is empty.
+
 ```mermaid
 sequenceDiagram
     autonumber
@@ -179,6 +186,8 @@ All bodies are JSON unless noted. Authenticated calls send
 | GET | `/users/:login/apps[?versions]` | user | Apps of a user (all of them, with versions, for the user themself or a moderator) |
 | GET | `/files/:slug/:version/:name` | owner, mod | File by version id, for "My apps" and moderation previews |
 | GET | `/mod/queue?status=` | mod | Versions by status, default `pending_review` |
+| GET | `/mod/apps` | mod | Every item with its owner, drafts and hidden ones included |
+| GET | `/mod/users` | mod | Everyone who has signed in, with role and item count |
 | POST | `/mod/versions/:id/approve` | mod | `{ "note"?: "..." }` |
 | POST | `/mod/versions/:id/reject` | mod | `{ "note": "reason" }` |
 | GET | `/mod/reports` | mod | Open reports |
@@ -278,6 +287,8 @@ the code controls is what a request costs:
   few rows per item instead of a scan per item;
 - rate limits per IP (300/min), per user for writes (60/min) and uploads
   (10/min) run before any database work;
+- per account: 3 new items a day, 20 in all, 5 versions waiting for review
+  (moderators are exempt);
 - on the free plan the limits are hard caps: a flood can stop the API until
   00:00 UTC, but never costs money. Do not move to a paid plan without a
   custom domain in front of the Worker.
@@ -295,6 +306,4 @@ The old repository's apps were imported with `scripts/import_catalog.py`
 ## Not done yet
 
 - "Publish" from the web IDE.
-- A moderator UI for handing imported apps to their authors (the API has it:
-  `PATCH /apps/:slug` with `owner`).
 - A custom domain with WAF rules in front of the Worker (needs DNS access).

@@ -158,12 +158,44 @@ call 404 "import is not public before processing" "${mirror[@]}" "$API/catalog/a
 # --- security regressions -----------------------------------------------
 call 200 "huge page number is clamped" "${fan[@]}" "$API/apps?page=99999999999999999999"
 call 409 "second report on the same app" "${fan[@]}" "${json[@]}" -X POST "$API/apps/smoke-hello/reports" -d '{"reason":"again"}'
-made=0; for i in $(seq 1 25); do
-    s=$(curl -s -o /dev/null -w '%{http_code}' "${fan[@]}" "${json[@]}" -X POST "$API/apps" \
-        -d "{\"slug\":\"fan-spam-$i\",\"kind\":\"app\",\"name\":\"s\",\"short_description\":\"s\",\"sources_url\":\"https://github.com/a/b\"}")
-    [ "$s" = 201 ] && made=$((made+1))
-done
-check "apps per account capped at 20" 20 "$made"
+spam() { # count of 201s out of $1 new apps by the fan, slugs from $2
+    local made=0 i s
+    for i in $(seq 1 "$1"); do
+        s=$(curl -s -o "$work/body" -w '%{http_code}' "${fan[@]}" "${json[@]}" -X POST "$API/apps" \
+            -d "{\"slug\":\"$2-$i\",\"kind\":\"app\",\"name\":\"s\",\"short_description\":\"s\",\"sources_url\":\"https://github.com/a/b\"}")
+        [ "$s" = 201 ] && made=$((made+1))
+    done
+    echo "$made"
+}
+check "new items per day capped at 3" 3 "$(spam 6 fan-spam)"
+grep -q "per day" "$work/body" && msg=ok || msg=other
+check "daily cap says so" ok "$msg"
+# Yesterday's items no longer count, but 20 per account still holds
+npx wrangler d1 execute lilka-catalog --local --command "
+UPDATE apps SET created_at = datetime('now', '-2 days') WHERE owner_id = 3;
+INSERT INTO apps (slug, owner_id, kind, sources_url, created_at)
+SELECT 'fan-old-' || value, 3, 'app', 'https://github.com/a/b', datetime('now', '-2 days')
+  FROM json_each('[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]');" >/dev/null
+check "a day later the fan can add again" 1 "$(spam 1 fan-next)"
+check "apps per account capped at 20" 0 "$(spam 1 fan-over)"
+grep -q "20 apps" "$work/body" && msg=ok || msg=other
+check "account cap says so" ok "$msg"
+
+# --- moderator lists and hand-over ---------------------------------------
+call 403 "users list is for moderators" "${user[@]}" "$API/mod/users"
+call 200 "moderator lists users" "${mod[@]}" "$API/mod/users"
+jq -e '(.items[0].system == true) and ([.items[] | select(.login == "smoke-fan")][0].items == 20)' "$work/body" >/dev/null && ul=ok || ul=bad
+check "users list: catalog account first, item counts" ok "$ul"
+call 403 "apps list is for moderators" "${fan[@]}" "$API/mod/apps"
+call 200 "moderator lists every item" "${mod[@]}" "$API/mod/apps"
+jq -e '[.items[] | select(.slug == "fan-old-1")][0] | .owner == "smoke-fan" and .status == "draft"' "$work/body" >/dev/null && al=ok || al=bad
+check "apps list has drafts with their owner" ok "$al"
+call 403 "owner cannot hand an app over" "${fan[@]}" "${json[@]}" -X PATCH "$API/apps/fan-old-1" -d '{"owner":"smoke-dev"}'
+call 200 "moderator hands an app to another user" "${mod[@]}" "${json[@]}" -X PATCH "$API/apps/fan-old-1" -d '{"owner":"smoke-dev"}'
+check "the new owner has it" smoke-dev "$(jq -r .owner.login "$work/body")"
+call 200 "moderator hands it back to the catalog account" "${mod[@]}" "${json[@]}" -X PATCH "$API/apps/fan-old-1" -d '{"owner":"lilka-catalog"}'
+npx wrangler d1 execute lilka-catalog --local --command "INSERT INTO users (id, login, role) VALUES (4, 'smoke-banned', 'banned');" >/dev/null
+call 409 "no hand-over to a banned user" "${mod[@]}" "${json[@]}" -X PATCH "$API/apps/fan-old-1" -d '{"owner":"smoke-banned"}'
 call 200 "download name is encoded" -I "${user[@]}" "$API/files/smoke-hello/$version_id/hello.lua?download"
 grep -qi "filename\*=UTF-8''hello.lua" "$work/body" && dl=ok || dl=raw
 check "Content-Disposition uses filename*" ok "$dl"
@@ -199,11 +231,17 @@ check "latest_version_id is the approved version, not the infected one" "$versio
 location=$(curl -sS -o /dev/null -w '%{redirect_url}' "$API/auth/login?return=http://localhost:8000/")
 state=$(printf '%s' "$location" | sed -n 's/.*[?&]state=\([^&]*\).*/\1/p')
 check "OAuth state is a signed token, not a stored row" ok "$(printf '%s' "$state" | grep -qE '^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$' && echo ok || echo "$state")"
-call 400 "tampered OAuth state refused" "$API/auth/callback?code=x&state=${state%?}A"
+# Flip the signature's first character: the last one also carries padding
+# bits the decoder ignores, so changing it can leave the same bytes
+sig=${state#*.}; first=${sig:0:1}; [ "$first" = A ] && swap=B || swap=A
+call 400 "tampered OAuth state refused" "$API/auth/callback?code=x&state=${state%%.*}.$swap${sig:1}"
 call 400 "made-up OAuth state refused" "$API/auth/callback?code=x&state=eyJyIjoiaHR0cHM6Ly9ldmlsLmV4YW1wbGUvIn0.AAAA"
 
 # Last, because it uses up this IP's budget for a minute
 limited=$(seq 1 330 | xargs -P 30 -I{} curl -s -o /dev/null -w '%{http_code}\n' "$API/" | grep -c '^429$' || true)
 check "per-IP rate limit kicks in" yes "$([ "$limited" -gt 0 ] && echo yes || echo "no 429 in 330 requests")"
+cors=$(curl -sS -o /dev/null -D - -H 'Origin: http://localhost:8000' "${user[@]}" "$API/auth/me" | tr -d '\r')
+check "a 429 still has CORS headers, so the site can read it" ok \
+    "$(grep -q '^HTTP/[0-9.]* 429' <<<"$cors" && grep -qi '^access-control-allow-origin: http://localhost:8000' <<<"$cors" && echo ok || echo "$cors")"
 
 echo "all $pass checks passed"

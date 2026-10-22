@@ -1558,6 +1558,10 @@ footer {
     font-size: 0.85rem;
 }
 
+.community-hint a {
+    color: var(--primary-color);
+}
+
 .community-form {
     display: flex;
     flex-direction: column;
@@ -1690,6 +1694,19 @@ footer {
     gap: 0.5rem;
     flex-wrap: wrap;
     align-items: center;
+}
+
+.community-card[hidden] {
+    display: none;
+}
+
+.mod-search {
+    margin-bottom: 1rem;
+    max-width: 24rem;
+}
+
+.mod-owner {
+    min-width: 12rem;
 }
 
 .community-slug {
