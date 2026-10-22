@@ -22,7 +22,7 @@ flowchart LR
     subgraph CF["lilka-catalog-api · Cloudflare Worker (api/)"]
         API["API routes<br/>/auth · /apps · /mod · /scan"]
         CAT["/catalog/…<br/>/catalog/export.json"]
-        D1[("D1<br/>users · sessions · apps<br/>versions · reports")]
+        D1[("D1<br/>users · sessions · apps<br/>versions · ratings · reports")]
         R2[("R2<br/>&lt;id&gt;-&lt;name&gt;/v/&lt;version&gt;/&lt;file&gt;")]
     end
 
@@ -171,7 +171,7 @@ All bodies are JSON unless noted. Authenticated calls send
 | GET | `/auth/login?return=<url>` | anyone | Redirects to GitHub. `return` must be on `ALLOWED_ORIGINS`; the OAuth state is signed, nothing is stored |
 | GET | `/auth/callback` | GitHub | Redirects to `return#lilka_token=<token>` |
 | POST | `/auth/logout` | user | Ends the session |
-| GET | `/auth/me` | user | Current user |
+| GET | `/auth/me` | user | Current user and `ratings` (slug → stars) they gave, so the site shows them without a request per app |
 | GET | `/catalog/{apps,wallpapers,mods}/index_<n>.json` | mirror job | Ids of published items, 12 per page |
 | GET | `/catalog/<dir>/<id>/index.json`, `index_short.json` | mirror job | Manifests in build.py's format |
 | GET | `/catalog/<dir>/<id>/static/<file>`, `package.zip` | mirror job | Files |
@@ -183,6 +183,8 @@ All bodies are JSON unless noted. Authenticated calls send
 | POST | `/apps` | user | Create draft; `kind`: `app`, `wallpaper` or `mod` |
 | PATCH | `/apps/:slug` | owner, mod | Edit metadata, `status: hidden \| published`; moderators also `author`, `owner` (login) |
 | POST | `/apps/:slug/versions` | owner, mod | Multipart: `version`, `keira_version`, `entry_type` (`lua`, `js`, `binary`, `archive`), `changelog`, files `entry`, `files[]`, `icon`, `screenshots[]`. Mods: no entry, model files as `files[]` |
+| PUT | `/apps/:slug/rating` | user (not owner) | `{ "stars": 1..5 }` → `{ my_rating, average, count }`; sending the same stars again writes nothing |
+| DELETE | `/apps/:slug/rating` | user | Removes your rating |
 | POST | `/apps/:slug/reports` | user | `{ "reason": "..." }` |
 | GET | `/users/:login/apps[?versions]` | user | Apps of a user (all of them, with versions, for the user themself or a moderator) |
 | GET | `/files/:slug/:version/:name` | owner, mod | File by version id, for "My apps" and moderation previews |

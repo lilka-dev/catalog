@@ -83,6 +83,20 @@ const COMMUNITY_STRINGS = {
     'status-rejected': 'відхилено',
     'status-infected': 'знайдено загрозу',
     'review-note': 'Коментар модератора',
+    'rating-title': 'Оцінка',
+    'rating-none': 'Ще ніхто не оцінив.',
+    // Plural forms by Intl.PluralRules: one / few / many (and other)
+    'rating-summary-one': '★ {average} · {count} оцінка',
+    'rating-summary-few': '★ {average} · {count} оцінки',
+    'rating-summary-many': '★ {average} · {count} оцінок',
+    'rating-summary-other': '★ {average} · {count} оцінки',
+    'rating-yours': 'Ваша оцінка:',
+    'rating-star': '{n} з 5',
+    'rating-sign-in': 'Увійдіть, щоб оцінити',
+    'rating-thanks': 'Дякуємо! Ваша оцінка ({stars}★) зʼявиться в списку протягом години.',
+    'rating-removed': 'Оцінку прибрано. Список оновиться протягом години.',
+    'rating-remove': 'Прибрати оцінку',
+    'rating-own': 'Свій застосунок оцінити не можна.',
     'files-removed': 'Файли цієї версії видалено після відхилення.',
     'file-gone': 'Цього файлу вже немає.',
     'scan-detail': 'Результат антивірусу',
@@ -205,6 +219,17 @@ const COMMUNITY_STRINGS = {
     'status-rejected': 'rejected',
     'status-infected': 'threat found',
     'review-note': 'Moderator note',
+    'rating-title': 'Rating',
+    'rating-none': 'No ratings yet.',
+    'rating-summary-one': '★ {average} · {count} rating',
+    'rating-summary-other': '★ {average} · {count} ratings',
+    'rating-yours': 'Your rating:',
+    'rating-star': '{n} of 5',
+    'rating-sign-in': 'Sign in to rate',
+    'rating-thanks': 'Thanks! Your rating ({stars}★) shows in the list within an hour.',
+    'rating-removed': 'Rating removed. The list updates within an hour.',
+    'rating-remove': 'Remove rating',
+    'rating-own': 'You cannot rate your own app.',
     'files-removed': 'The files of this version were deleted when it was rejected.',
     'file-gone': 'This file is no longer available.',
     'scan-detail': 'Antivirus result',
@@ -291,6 +316,8 @@ class CommunityUI {
     this.api = this.readApiUrl();
     this.token = null;
     this.user = null;
+    // slug -> stars of the signed-in user, from /auth/me
+    this.ratings = {};
     this.myApps = [];
     this.modStatus = 'pending_review';
     // Resolves once the session is known, so routing can wait for it
@@ -365,8 +392,9 @@ class CommunityUI {
 
     if (this.token) {
       try {
-        const {user} = await this.request('GET', '/auth/me');
+        const {user, ratings} = await this.request('GET', '/auth/me');
         this.user = user;
+        this.ratings = ratings || {};
       } catch (e) {
         // Expired or revoked: behave as signed out. A rate limit or a network
         // hiccup is not a reason to sign the user out for good
@@ -408,6 +436,7 @@ class CommunityUI {
     }
     this.saveToken(null);
     this.user = null;
+    this.ratings = {};
     this.renderAccount();
     if (this.views.includes(this.app.currentType)) this.show(this.app.currentType);
   }
@@ -493,6 +522,114 @@ class CommunityUI {
     } catch (e) {
       return url;
     }
+  }
+
+  // --- Rating in the details view ------------------------------------------
+
+  /**
+   * Requests: none to show the average (listing.json on Pages) or your own
+   * rating (it came with /auth/me), one to rate or remove a rating. Only
+   * signed-in users can rate; the list picks new averages up on the next
+   * hourly mirror run, this section shows them at once.
+   */
+  async mountRating(modalBody, type, slug, entry) {
+    if (!this.enabled || !['apps', 'wallpapers', 'mods'].includes(type)) return;
+    const section = document.createElement('div');
+    section.className = 'modal-section rating-section';
+    const header = modalBody.querySelector('.modal-header');
+    if (header) header.after(section); else modalBody.prepend(section);
+    section.innerHTML = `
+      <h3>${this.esc(this.t('rating-title'))}</h3>
+      <p class="rating-summary"></p>
+      <div class="rating-action"></div>
+      <p class="community-hint rating-message" hidden></p>`;
+    const summary = section.querySelector('.rating-summary');
+    const showSummary = (rating) => {
+      summary.textContent = rating && rating.count ?
+          this.t(`rating-summary-${new Intl.PluralRules(this.app.currentLang).select(rating.count)}`,
+              {average: rating.average, count: rating.count}) :
+          this.t('rating-none');
+    };
+    // Opened from the Authors page or a direct link: the list of this kind may
+    // not be loaded yet. It is a static file on Pages, not a Worker request
+    if (!entry) {
+      await this.app.loadListing(type);
+      entry = this.app.listingEntry(type, slug);
+    }
+    showSummary(entry && entry.rating);
+
+    await this.ready;
+    const action = section.querySelector('.rating-action');
+    const message = section.querySelector('.rating-message');
+    const say = (text) => {
+      message.textContent = text;
+      message.hidden = !text;
+    };
+    if (!this.user) {
+      action.innerHTML = `<button class="btn-sm rating-sign-in">${this.esc(this.t('rating-sign-in'))}</button>`;
+      action.querySelector('button').addEventListener('click', () => this.signIn());
+      return;
+    }
+    if (this.user.role === 'banned') return;
+    // The API refuses it too; this spares the request
+    if (entry && String(entry.author || '').toLowerCase() === `@${this.user.login}`.toLowerCase()) {
+      say(this.t('rating-own'));
+      return;
+    }
+
+    action.innerHTML = `<span class="community-hint">${this.esc(this.t('rating-yours'))}</span>
+      <span class="rating-stars" role="group">${[1, 2, 3, 4, 5].map(n =>
+          `<button class="rating-star" data-stars="${n}" title="${this.esc(this.t('rating-star', {n}))}"
+              aria-label="${this.esc(this.t('rating-star', {n}))}">★</button>`).join('')}</span>
+      <button class="btn-sm rating-remove" hidden>${this.esc(this.t('rating-remove'))}</button>`;
+    const stars = [...action.querySelectorAll('.rating-star')];
+    const remove = action.querySelector('.rating-remove');
+    const show = (n) => stars.forEach(b => {
+      b.classList.toggle('on', Number(b.dataset.stars) <= n);
+      b.setAttribute('aria-pressed', String(Number(b.dataset.stars) === (this.ratings[slug] || 0)));
+    });
+    const settle = () => {
+      show(this.ratings[slug] || 0);
+      remove.hidden = !this.ratings[slug];
+    };
+    settle();
+    action.querySelector('.rating-stars').addEventListener('mouseleave', settle);
+    const busy = (on) => [...stars, remove].forEach(b => { b.disabled = on; });
+
+    stars.forEach(button => {
+      button.addEventListener('mouseenter', () => show(Number(button.dataset.stars)));
+      button.addEventListener('click', async () => {
+        const n = Number(button.dataset.stars);
+        // Same stars again: nothing to send
+        if (this.ratings[slug] === n) return;
+        busy(true);
+        try {
+          const result = await this.request('PUT', `/apps/${encodeURIComponent(slug)}/rating`, {stars: n});
+          this.ratings[slug] = n;
+          showSummary(result);
+          say(this.t('rating-thanks', {stars: n}));
+          if (window.umami) window.umami.track('rate', {item: slug, stars: n});
+        } catch (error) {
+          say(error.status === 403 ? this.t('rating-own') : this.t('error', {message: error.message}));
+        } finally {
+          busy(false);
+          settle();
+        }
+      });
+    });
+    remove.addEventListener('click', async () => {
+      busy(true);
+      try {
+        await this.request('DELETE', `/apps/${encodeURIComponent(slug)}/rating`);
+        delete this.ratings[slug];
+        say(this.t('rating-removed'));
+      } catch (error) {
+        say(this.t('error', {message: error.message}));
+      } finally {
+        busy(false);
+        settle();
+      }
+    });
   }
 
   // --- API -------------------------------------------------------------------

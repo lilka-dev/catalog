@@ -77,6 +77,11 @@ export const APP_SELECT = `
     SELECT a.*, u.login AS owner_login, u.avatar_url AS owner_avatar
       FROM apps a JOIN users u ON u.id = a.owner_id`;
 
+/** The rating block of listing.json and of PUT /apps/:slug/rating. */
+export function ratingSummary(count: number, total: number | null) {
+    return { average: count && total !== null ? Math.round((total / count) * 10) / 10 : null, count };
+}
+
 export function fileUrl(env: Env, slug: string, versionId: number, name: string): string {
     return `${env.PUBLIC_URL.replace(/\/$/, '')}/files/${slug}/${versionId}/${encodeURIComponent(name)}`;
 }
@@ -490,6 +495,44 @@ apps.post('/:slug/versions', async (c) => {
         .bind(versionId)
         .first<VersionRow>();
     return c.json(serializeVersion(c.env, app.slug, created!, true), 201);
+});
+
+/**
+ * One rating per user and app, changed by sending it again.
+ *
+ * Costs one app lookup, one upsert and one read of this app's ratings, and
+ * nothing is dispatched: the averages reach listing.json with the next hourly
+ * mirror run, while the site shows the new vote at once from this response.
+ */
+apps.put('/:slug/rating', async (c) => {
+    const user = requireUser(c);
+    const { stars } = await readJson<{ stars?: unknown }>(c);
+    if (typeof stars !== 'number' || !Number.isInteger(stars) || stars < 1 || stars > 5) {
+        fail(400, 'stars must be an integer from 1 to 5');
+    }
+    const app = await c.env.DB.prepare(`SELECT id, owner_id, status FROM apps WHERE slug = ?`)
+        .bind(c.req.param('slug'))
+        .first<{ id: number; owner_id: number; status: string }>();
+    if (!app || app.status !== 'published') fail(404, 'app not found');
+    if (app.owner_id === user.id) fail(403, 'cannot rate your own app');
+    const [, summary] = await c.env.DB.batch<{ n: number; total: number | null }>([
+        c.env.DB.prepare(
+            `INSERT INTO ratings (app_id, user_id, stars) VALUES (?, ?, ?)
+             ON CONFLICT (app_id, user_id) DO UPDATE SET stars = excluded.stars, updated_at = datetime('now')
+             WHERE ratings.stars != excluded.stars`,
+        ).bind(app.id, user.id, stars),
+        c.env.DB.prepare(`SELECT COUNT(*) AS n, SUM(stars) AS total FROM ratings WHERE app_id = ?`).bind(app.id),
+    ]);
+    const row = summary.results[0];
+    return c.json({ my_rating: stars, ...ratingSummary(row?.n ?? 0, row?.total ?? null) });
+});
+
+apps.delete('/:slug/rating', async (c) => {
+    const user = requireUser(c);
+    await c.env.DB.prepare(`DELETE FROM ratings WHERE user_id = ? AND app_id = (SELECT id FROM apps WHERE slug = ?)`)
+        .bind(user.id, c.req.param('slug'))
+        .run();
+    return c.json({ ok: true });
 });
 
 apps.post('/:slug/reports', async (c) => {
