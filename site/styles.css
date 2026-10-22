@@ -2213,3 +2213,60 @@ footer {
 .rating-star:disabled {
     cursor: wait;
 }
+
+/* Moderation: item and user panels (community.js renderItemPanel, renderUserPanel) */
+.mod-panel {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border-solid);
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.mod-panel h4 {
+    margin: 0.75rem 0 0;
+}
+
+.mod-version {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.mod-check {
+    display: flex;
+    gap: 0.6rem;
+    align-items: flex-start;
+    cursor: pointer;
+}
+
+.mod-check input {
+    margin-top: 0.25rem;
+    accent-color: var(--primary-color);
+}
+
+.mod-user-items {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.mod-user-item {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.mod-alert {
+    color: var(--warning);
+}
+
+.mod-saved {
+    color: var(--success);
+}
+
+.community-actions:has(.mod-owner) {
+    align-items: flex-end;
+}

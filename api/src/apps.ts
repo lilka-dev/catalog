@@ -173,6 +173,11 @@ export async function findApp(env: Env, slug: string): Promise<AppRow | null> {
     return env.DB.prepare(`${APP_SELECT} WHERE a.slug = ?`).bind(slug).first<AppRow>();
 }
 
+/** Moderators, and authors a moderator marked trusted, skip the per-account item limits. */
+function limitsLifted(user: User): boolean {
+    return user.role === 'moderator' || !!user.trusted;
+}
+
 function canManage(user: User | null, app: AppRow): boolean {
     return !!user && user.role !== 'banned' && (user.id === app.owner_id || user.role === 'moderator');
 }
@@ -324,7 +329,7 @@ apps.post('/', async (c) => {
 
     const exists = await c.env.DB.prepare(`SELECT 1 FROM apps WHERE slug = ?`).bind(body.slug).first();
     if (exists) fail(409, 'slug is taken');
-    if (user.role !== 'moderator') {
+    if (!limitsLifted(user)) {
         // Counted from the table: it holds across Worker instances and over a
         // whole day, which the per-minute rate limiters cannot do. Both count
         // what the user created, not imports handed over to them (migration 0007)
@@ -380,20 +385,23 @@ apps.patch('/:slug', async (c) => {
         params.push(value);
     };
 
+    // Imported items were checked against the import's limits, longer than a
+    // new submission's; a moderator editing one must be able to save it
+    const mod = user.role === 'moderator';
     if (body.name !== undefined) {
-        const name = readLocalized(body.name, 'name', 64);
+        const name = readLocalized(body.name, 'name', mod ? 200 : 64);
         if (!name.uk && !name.en) fail(400, 'name cannot be empty');
         set('name_uk', name.uk);
         set('name_en', name.en);
     }
     if (body.short_description !== undefined) {
-        const short = readLocalized(body.short_description, 'short_description', 200);
+        const short = readLocalized(body.short_description, 'short_description', mod ? 1000 : 200);
         if (!short.uk && !short.en) fail(400, 'short_description cannot be empty');
         set('short_uk', short.uk);
         set('short_en', short.en);
     }
     if (body.description !== undefined) {
-        const description = readLocalized(body.description, 'description', 20000);
+        const description = readLocalized(body.description, 'description', mod ? 100000 : 20000);
         set('description_uk', description.uk);
         set('description_en', description.en);
     }
@@ -473,13 +481,15 @@ apps.post('/:slug/versions', async (c) => {
     const length = Number(c.req.header('Content-Length') ?? 0);
     if (length > MAX_UPLOAD_BYTES + 64 * 1024) fail(413, `upload is larger than ${MAX_UPLOAD_BYTES} bytes`);
 
-    const pending = await c.env.DB.prepare(
-        `SELECT COUNT(*) AS n FROM versions v JOIN apps a ON a.id = v.app_id
-          WHERE a.owner_id = ? AND v.status IN ('pending_scan', 'pending_review')`,
-    )
-        .bind(app.owner_id)
-        .first<{ n: number }>();
-    if ((pending?.n ?? 0) >= MAX_PENDING_PER_USER) fail(429, 'too many versions are waiting for review');
+    if (!limitsLifted(user)) {
+        const pending = await c.env.DB.prepare(
+            `SELECT COUNT(*) AS n FROM versions v JOIN apps a ON a.id = v.app_id
+              WHERE a.owner_id = ? AND v.status IN ('pending_scan', 'pending_review')`,
+        )
+            .bind(app.owner_id)
+            .first<{ n: number }>();
+        if ((pending?.n ?? 0) >= MAX_PENDING_PER_USER) fail(429, 'too many versions are waiting for review');
+    }
 
     let form: FormData;
     try {

@@ -21,7 +21,7 @@ export const sessionMiddleware: MiddlewareHandler<AppEnv> = async (c, next) => {
     if (match) {
         const tokenHash = await sha256Hex(match[1]);
         const user = await c.env.DB.prepare(
-            `SELECT u.id, u.login, u.name, u.avatar_url, u.role
+            `SELECT u.id, u.login, u.name, u.avatar_url, u.role, u.trusted
                FROM sessions s JOIN users u ON u.id = s.user_id
               WHERE s.token_hash = ? AND s.expires_at > datetime('now')`,
         )

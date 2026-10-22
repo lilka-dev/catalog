@@ -219,6 +219,43 @@ call 409 "no hand-over to a banned user" "${mod[@]}" "${json[@]}" -X PATCH "$API
 call 200 "download name is encoded" -I "${user[@]}" "$API/files/smoke-hello/$version_id/hello.lua?download"
 grep -qi "filename\*=UTF-8''hello.lua" "$work/body" && dl=ok || dl=raw
 check "Content-Disposition uses filename*" ok "$dl"
+
+# --- moderator tools ------------------------------------------------------
+call 200 "all items with counts" "${mod[@]}" "$API/mod/apps"
+jq -e '[.items[] | select(.slug == "smoke-hello")][0] | .versions >= 1 and .created_by == "smoke-dev" and (.rating | has("average")) and (.open_reports >= 1)' "$work/body" >/dev/null && ma=ok || ma=bad
+check "all items: versions, creator, rating, reports" ok "$ma"
+jq -e '[.items[] | select(.slug == "Smoke_Import")][0].created_by == null' "$work/body" >/dev/null && mi=ok || mi=bad
+check "an import has no creator" ok "$mi"
+call 403 "user details are for moderators" "${fan[@]}" "$API/mod/users/smoke-dev"
+call 200 "moderator opens a user" "${mod[@]}" "$API/mod/users/smoke-fan"
+jq -e '.stats.created == 20 and .stats.sessions == 1 and (.items | length) == 19 and .user.trusted == false' "$work/body" >/dev/null && ud=ok || ud=bad
+check "user details: created 20, owns 19 (one handed away), sessions" ok "$ud"
+call 400 "note too long" "${mod[@]}" "${json[@]}" -X PATCH "$API/mod/users/smoke-fan" -d "{\"note\":\"$(printf 'x%.0s' $(seq 1 2001))\"}"
+call 403 "users cannot edit users" "${fan[@]}" "${json[@]}" -X PATCH "$API/mod/users/smoke-fan" -d '{"trusted":true}'
+call 200 "moderator trusts the fan and leaves a note" "${mod[@]}" "${json[@]}" -X PATCH "$API/mod/users/smoke-fan" -d '{"trusted":true,"note":"knows the hardware"}'
+check "a trusted author is past the 20-item cap" 1 "$(spam 1 fan-trusted)"
+call 200 "moderator takes trust back" "${mod[@]}" "${json[@]}" -X PATCH "$API/mod/users/smoke-fan" -d '{"trusted":false}'
+check "the cap is back" 0 "$(spam 1 fan-untrusted)"
+check "the note is kept" "knows the hardware" "$(curl -sS "${mod[@]}" "$API/mod/users/smoke-fan" | jq -r .user.mod_note)"
+npx wrangler d1 execute lilka-catalog --local --command "
+INSERT INTO users (id, login, role) VALUES (6, 'smoke-temp', 'user');
+INSERT INTO sessions VALUES ('$(sha temp-token)', 6, datetime('now', '+30 days'));" >/dev/null
+temp=(-H "Authorization: Bearer temp-token")
+call 200 "temp user rates" "${temp[@]}" "${json[@]}" -X PUT "$API/apps/smoke-hello/rating" -d '{"stars":2}'
+call 200 "moderator removes the user's ratings" "${mod[@]}" -X DELETE "$API/mod/users/smoke-temp/ratings"
+check "one rating removed" 1 "$(jq -r .ratings "$work/body")"
+call 200 "moderator ends the user's sessions" "${mod[@]}" -X POST "$API/mod/users/smoke-temp/sign-out"
+call 401 "the ended session no longer works" "${temp[@]}" "$API/auth/me"
+
+call 201 "moderator makes an item to delete" "${mod[@]}" "${json[@]}" -X POST "$API/apps" \
+    -d '{"slug":"smoke-delete","kind":"app","name":"d","short_description":"d","sources_url":"https://github.com/a/b"}'
+call 201 "with a version" "${mod[@]}" -X POST "$API/apps/smoke-delete/versions" \
+    -F version=1.0.0 -F keira_version=1.0.0 -F entry_type=lua -F "entry=@$work/hello.lua"
+delete_prefix=$(npx wrangler d1 execute lilka-catalog --local --json --command "SELECT v.storage_prefix FROM versions v JOIN apps a ON a.id = v.app_id WHERE a.slug = 'smoke-delete'" 2>/dev/null | jq -r '.[0].results[0].storage_prefix')
+call 400 "delete needs the slug repeated" "${mod[@]}" "${json[@]}" -X DELETE "$API/mod/apps/smoke-delete" -d '{"confirm":"smoke"}'
+call 403 "users cannot delete items" "${user[@]}" "${json[@]}" -X DELETE "$API/mod/apps/smoke-delete" -d '{"confirm":"smoke-delete"}'
+call 200 "moderator deletes the item" "${mod[@]}" "${json[@]}" -X DELETE "$API/mod/apps/smoke-delete" -d '{"confirm":"smoke-delete"}'
+call 404 "deleted item is gone" "${mod[@]}" "$API/apps/smoke-delete"
 r2_list() { curl -sS "$API/cdn-cgi/local/explorer/api/r2/buckets/lilka-catalog-files/objects?limit=1000" | jq -r '.result[].key'; }
 # The local bucket outlives the database between runs, so look only at this run's folders
 prefix_of() { npx wrangler d1 execute lilka-catalog --local --json --command "SELECT storage_prefix FROM versions WHERE id = $1" 2>/dev/null | jq -r '.[0].results[0].storage_prefix'; }
@@ -229,6 +266,7 @@ call 200 "processor clears it" "${scanner[@]}" -X POST "$API/scan/versions/$reje
 call 200 "moderator rejects it" "${mod[@]}" "${json[@]}" -X POST "$API/mod/versions/$reject_id/reject" -d '{"note":"not a case"}'
 sleep 1
 check "rejected files are deleted" 0 "$(r2_list | grep -c "^$(prefix_of "$reject_id")/" || true)"
+check "a deleted item's files are gone" 0 "$(r2_list | grep -c "^$delete_prefix/" || true)"
 check "approved files are kept" 1 "$(r2_list | grep -c "^$(prefix_of "$version_id")/hello.lua$" || true)"
 
 call 200 "owner hides app" "${user[@]}" "${json[@]}" -X PATCH "$API/apps/smoke-hello" -d '{"status":"hidden"}'

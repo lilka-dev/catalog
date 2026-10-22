@@ -127,6 +127,40 @@ const COMMUNITY_STRINGS = {
     'unban': 'Розблокувати',
     'confirm-unban': 'Розблокувати {login}? Приховані додатки треба буде опублікувати знову вручну.',
     'filter': 'Пошук',
+    'manage': 'Керувати',
+    'details': 'Докладно',
+    'close': 'Згорнути',
+    'author-line': 'Рядок автора (порожньо — логін власника)',
+    'created-by': 'Створив',
+    'created-by-import': 'імпорт',
+    'versions-count': 'версій: {n}',
+    'pending-count': 'чекають: {n}',
+    'reports-count': 'скарг: {n}',
+    'publish': 'Опублікувати',
+    'delete-item': 'Видалити назавжди',
+    'confirm-delete': 'Це видалить «{slug}», усі версії, файли, оцінки й скарги. Щоб підтвердити, введіть назву папки:',
+    'deleted': 'Видалено.',
+    'saved': 'Збережено.',
+    'item-reports': 'Скарги на цей елемент',
+    'no-reports-item': 'Скарг немає.',
+    'resolved': 'закрито',
+    'trusted': 'Довірений автор',
+    'trusted-hint': 'Без лімітів на кількість елементів (3 на день, 20 усього, 5 на перевірці). Перевірка антивірусом і модератором лишається.',
+    'mod-note': 'Нотатка модераторів (бачать лише модератори)',
+    'sign-out-all': 'Завершити всі сесії',
+    'confirm-sign-out-all': 'Вийти з усіх пристроїв для {login}?',
+    'signed-out': 'Завершено сесій: {n}.',
+    'remove-ratings': 'Прибрати всі оцінки',
+    'confirm-remove-ratings': 'Прибрати всі оцінки від {login}?',
+    'ratings-removed': 'Прибрано оцінок: {n}.',
+    'user-stats': 'Створив: {created} (сьогодні: {today}) · оцінок: {ratings} · активних сесій: {sessions}',
+    'last-sign-in': 'Останній вхід: {date}',
+    'never-signed-in': 'Ще не входив',
+    'user-items': 'Елементи',
+    'user-reports': 'Скарги від користувача',
+    'handed-over': 'передано',
+    'role-note': 'Роль модератора задається в MODERATORS (api/wrangler.toml).',
+    'note-badge': 'є нотатка',
     'view': 'Переглянути',
     'download': 'Завантажити',
     'by': 'від',
@@ -260,6 +294,40 @@ const COMMUNITY_STRINGS = {
     'unban': 'Unban',
     'confirm-unban': 'Unban {login}? Their hidden apps have to be published again by hand.',
     'filter': 'Search',
+    'manage': 'Manage',
+    'details': 'Details',
+    'close': 'Close',
+    'author-line': 'Author line (empty: the owner\'s login)',
+    'created-by': 'Created by',
+    'created-by-import': 'import',
+    'versions-count': 'versions: {n}',
+    'pending-count': 'waiting: {n}',
+    'reports-count': 'reports: {n}',
+    'publish': 'Publish',
+    'delete-item': 'Delete for good',
+    'confirm-delete': 'This deletes "{slug}" with all versions, files, ratings and reports. Type the folder name to confirm:',
+    'deleted': 'Deleted.',
+    'saved': 'Saved.',
+    'item-reports': 'Reports on this item',
+    'no-reports-item': 'No reports.',
+    'resolved': 'resolved',
+    'trusted': 'Trusted author',
+    'trusted-hint': 'No item limits (3 a day, 20 in all, 5 waiting for review). Uploads are still scanned and reviewed.',
+    'mod-note': 'Moderator note (only moderators see it)',
+    'sign-out-all': 'End all sessions',
+    'confirm-sign-out-all': 'Sign {login} out on every device?',
+    'signed-out': 'Sessions ended: {n}.',
+    'remove-ratings': 'Remove all ratings',
+    'confirm-remove-ratings': 'Remove every rating {login} gave?',
+    'ratings-removed': 'Ratings removed: {n}.',
+    'user-stats': 'Created: {created} (today: {today}) · ratings: {ratings} · active sessions: {sessions}',
+    'last-sign-in': 'Last sign-in: {date}',
+    'never-signed-in': 'Never signed in',
+    'user-items': 'Items',
+    'user-reports': 'Reports by this user',
+    'handed-over': 'handed over',
+    'role-note': 'The moderator role is set in MODERATORS (api/wrangler.toml).',
+    'note-badge': 'has a note',
     'view': 'View',
     'download': 'Download',
     'by': 'by',
@@ -1252,6 +1320,8 @@ class CommunityUI {
     const bindTabs = (box) => box.querySelectorAll('[data-status]').forEach(btn => {
       btn.addEventListener('click', () => {
         this.modStatus = btn.dataset.status;
+        // A search is kept only for a jump from a user to their item
+        this.modSearch = '';
         this.show('mod');
       });
     });
@@ -1369,25 +1439,277 @@ class CommunityUI {
         }
       });
     });
+    // Panels load on demand: one or two requests when opened, none for the list
+    const toggle = (btn, open) => btn.addEventListener('click', async () => {
+      const panel = btn.closest('.community-card').querySelector('.mod-panel');
+      if (!panel.hidden) {
+        panel.hidden = true;
+        btn.textContent = btn.dataset.label;
+        return;
+      }
+      btn.dataset.label = btn.dataset.label || btn.textContent;
+      btn.textContent = this.t('close');
+      panel.hidden = false;
+      panel.innerHTML = `<div class="loading">${this.esc(this.t('loading'))}</div>`;
+      try {
+        await open(panel);
+      } catch (error) {
+        panel.innerHTML = `<p class="form-error">${this.esc(this.t('error', {message: error.message}))}</p>`;
+      }
+    });
+    box.querySelectorAll('[data-manage]').forEach(btn =>
+      toggle(btn, panel => this.renderItemPanel(panel, btn.dataset.manage)));
+    box.querySelectorAll('[data-details]').forEach(btn =>
+      toggle(btn, panel => this.renderUserPanel(panel, btn.dataset.details)));
+    if (this.modSearch) {
+      search.value = this.modSearch;
+      search.dispatchEvent(new Event('input'));
+    }
+    search.addEventListener('input', () => { this.modSearch = search.value; });
+  }
+
+  /** Everything about one item: fields, status, versions with files and review, reports, delete. */
+  async renderItemPanel(panel, slug) {
+    const path = `/apps/${encodeURIComponent(slug)}`;
+    const [app, reports] = await Promise.all([
+      this.request('GET', path),
+      this.request('GET', `/mod/reports?slug=${encodeURIComponent(slug)}`),
+    ]);
+    const n = app.name || {}, s = app.short_description || {}, d = app.description || {};
+    const field = (id, label, value, tag = 'input') => `
+      <label class="form-field"><span class="form-label">${this.esc(this.t(label))}</span>
+        ${tag === 'textarea' ?
+            `<textarea data-field="${id}" rows="5">${this.esc(value)}</textarea>` :
+            `<input data-field="${id}" value="${this.esc(value)}">`}
+      </label>`;
+    const [catalogType] = app.catalog_path.split('/');
+    // Imported items keep their historic author line; null shows the owner's login
+    const authorLine = app.author === `@${app.owner.login}` ? '' : app.author;
+    panel.innerHTML = `
+      <div class="community-form">
+        <div class="form-row">${field('name_uk', 'name-uk', n.uk)}${field('name_en', 'name-en', n.en)}</div>
+        <div class="form-row">${field('short_uk', 'short-uk', s.uk)}${field('short_en', 'short-en', s.en)}</div>
+        <div class="form-row">${field('description_uk', 'desc-uk', d.uk, 'textarea')}${field('description_en', 'desc-en', d.en, 'textarea')}</div>
+        <div class="form-row">${field('sources_url', 'sources', app.sources_url)}${field('license', 'license', app.license)}</div>
+        <div class="form-row">${field('author', 'author-line', authorLine)}</div>
+        <div class="form-error" hidden></div>
+        <p class="community-hint mod-saved" hidden></p>
+        <div class="form-actions">
+          <button class="download-btn" data-item="save">${this.esc(this.t('save'))}</button>
+          ${app.status === 'published' ?
+              `<button class="btn-sm" data-item="hide">${this.esc(this.t('hide'))}</button>
+               <a class="btn-sm" href="?type=${this.esc(catalogType)}&item=${encodeURIComponent(app.slug)}">${this.esc(this.t('view-in-catalog'))}</a>` :
+              `<button class="btn-sm" data-item="publish">${this.esc(this.t('publish'))}</button>`}
+          <button class="btn-sm danger" data-item="delete">${this.esc(this.t('delete-item'))}</button>
+        </div>
+      </div>
+      <h4>${this.esc(this.t('versions'))}</h4>
+      ${app.versions.length ? app.versions.map(v => `
+        <div class="mod-version" data-version="${v.id}">
+          ${this.renderVersion(v)}
+          <div class="community-actions">
+            ${v.status === 'pending_review' ? `<button class="download-btn" data-review="approve">${this.esc(this.t('approve'))}</button>` : ''}
+            ${v.status !== 'approved' && v.status !== 'rejected' && v.status !== 'infected' ?
+                `<button class="btn-sm" data-review="reject">${this.esc(this.t('reject'))}</button>` : ''}
+          </div>
+        </div>`).join('') : `<p class="community-hint">${this.esc(this.t('no-versions'))}</p>`}
+      <h4>${this.esc(this.t('item-reports'))}</h4>
+      ${reports.items.length ? reports.items.map(r => `
+        <div class="community-note">
+          ${this.esc(r.reason)}
+          <div class="community-hint">${this.esc(this.t('by'))} ${this.esc(r.reporter)} · ${this.esc(this.formatTime(r.created_at))}${
+              r.resolved ? ` · ${this.esc(this.t('resolved'))}` :
+                  ` · <button class="btn-sm" data-resolve-report="${r.id}">${this.esc(this.t('resolve'))}</button>`}</div>
+        </div>`).join('') : `<p class="community-hint">${this.esc(this.t('no-reports-item'))}</p>`}`;
+    this.bindFileButtons(panel);
+
+    const get = (id) => panel.querySelector(`[data-field="${id}"]`).value.trim();
+    const errorBox = panel.querySelector('.form-error');
+    const saved = panel.querySelector('.mod-saved');
+    const run = async (work, message) => {
+      errorBox.hidden = true;
+      saved.hidden = true;
+      try {
+        await work();
+        if (message) {
+          saved.textContent = message;
+          saved.hidden = false;
+        }
+        return true;
+      } catch (error) {
+        errorBox.textContent = this.t('error', {message: error.message});
+        errorBox.hidden = false;
+        return false;
+      }
+    };
+    const reload = () => this.renderItemPanel(panel, slug);
+
+    panel.querySelector('[data-item="save"]').addEventListener('click', () => run(() =>
+      this.request('PATCH', path, {
+        name: {uk: get('name_uk'), en: get('name_en')},
+        short_description: {uk: get('short_uk'), en: get('short_en')},
+        description: {uk: get('description_uk'), en: get('description_en')},
+        sources_url: get('sources_url'),
+        license: get('license'),
+        author: get('author') || null,
+      }), this.t('saved')));
+    panel.querySelectorAll('[data-item="hide"], [data-item="publish"]').forEach(btn => btn.addEventListener('click', async () => {
+      if (btn.dataset.item === 'hide' && !confirm(this.t('confirm-hide'))) return;
+      if (await run(() => this.request('PATCH', path, {status: btn.dataset.item === 'hide' ? 'hidden' : 'published'}))) reload();
+    }));
+    panel.querySelector('[data-item="delete"]').addEventListener('click', async () => {
+      const typed = prompt(this.t('confirm-delete', {slug}), '');
+      if (typed === null) return;
+      if (await run(() => this.request('DELETE', `/mod/apps/${encodeURIComponent(slug)}`, {confirm: typed.trim()}))) {
+        panel.closest('.community-card').innerHTML = `<p class="community-hint">${this.esc(this.t('deleted'))} <code>${this.esc(slug)}</code></p>`;
+      }
+    });
+    panel.querySelectorAll('[data-review]').forEach(btn => btn.addEventListener('click', async () => {
+      const id = btn.closest('.mod-version').dataset.version;
+      let body;
+      if (btn.dataset.review === 'approve') {
+        const note = prompt(this.t('approve-note'), '');
+        if (note === null) return;
+        body = {note: note || undefined};
+      } else {
+        const note = prompt(this.t('reject-reason'), '');
+        if (!note) return;
+        body = {note};
+      }
+      if (await run(() => this.request('POST', `/mod/versions/${id}/${btn.dataset.review}`, body))) reload();
+    }));
+    panel.querySelectorAll('[data-resolve-report]').forEach(btn => btn.addEventListener('click', async () => {
+      if (await run(() => this.request('POST', `/mod/reports/${btn.dataset.resolveReport}/resolve`))) reload();
+    }));
+  }
+
+  /** One user: profile, activity, items, reports; note, trusted, sessions, ratings, ban. */
+  async renderUserPanel(panel, login) {
+    const base = `/mod/users/${encodeURIComponent(login)}`;
+    const {user, stats, items, reports} = await this.request('GET', base);
+    const facts = [user.location, user.company].filter(Boolean).map(f => this.esc(f));
+    if (user.blog && /^https?:\/\//i.test(user.blog)) {
+      facts.push(`<a href="${this.esc(user.blog)}" target="_blank" rel="noopener noreferrer nofollow ugc">${this.esc(user.blog)}</a>`);
+    }
+    const lastSignIn = stats.last_sign_in ?
+        this.t('last-sign-in', {date: this.formatTime(stats.last_sign_in)}) : this.t('never-signed-in');
+    const banAction = user.system || user.role === 'moderator' ? '' : user.role === 'banned' ?
+        `<button class="btn-sm" data-user="unban">${this.esc(this.t('unban'))}</button>` :
+        `<button class="btn-sm danger" data-user="ban">${this.esc(this.t('ban'))}</button>`;
+    panel.innerHTML = `
+      ${user.bio ? `<p>${this.esc(user.bio)}</p>` : ''}
+      ${facts.length ? `<p class="community-hint">${facts.join(' · ')}</p>` : ''}
+      <p class="community-hint">${this.esc(this.t('user-stats', {
+          created: stats.created, today: stats.created_today, ratings: stats.ratings, sessions: stats.sessions}))} · ${
+          this.esc(lastSignIn)}</p>
+      ${user.role === 'moderator' ? `<p class="community-hint">${this.esc(this.t('role-note'))}</p>` : ''}
+      <div class="community-form">
+        ${user.system ? '' : `
+          <label class="mod-check">
+            <input type="checkbox" data-user-field="trusted" ${user.trusted ? 'checked' : ''}>
+            <span><strong>${this.esc(this.t('trusted'))}</strong><br><span class="community-hint">${this.esc(this.t('trusted-hint'))}</span></span>
+          </label>`}
+        <label class="form-field"><span class="form-label">${this.esc(this.t('mod-note'))}</span>
+          <textarea data-user-field="note" rows="3" maxlength="2000">${this.esc(user.mod_note || '')}</textarea>
+        </label>
+        <div class="form-error" hidden></div>
+        <p class="community-hint mod-saved" hidden></p>
+        <div class="form-actions">
+          <button class="download-btn" data-user="save">${this.esc(this.t('save'))}</button>
+          ${user.system ? '' : `
+            <button class="btn-sm" data-user="sign-out">${this.esc(this.t('sign-out-all'))}</button>
+            <button class="btn-sm" data-user="ratings">${this.esc(this.t('remove-ratings'))}</button>`}
+          ${banAction}
+        </div>
+      </div>
+      <h4>${this.esc(this.t('user-items'))}</h4>
+      ${items.length ? `<div class="mod-user-items">${items.map(a => `
+        <div class="mod-user-item">
+          <button class="btn-sm" data-goto="${this.esc(a.slug)}">${this.esc(a.name[this.app.currentLang] || a.name.uk || a.name.en || a.slug)}</button>
+          ${this.statusBadge(a.status)}
+          <span class="community-hint">${this.esc(a.kind)} · ${this.esc(this.formatTime(a.created_at))}${a.own ? '' : ` · ${this.esc(this.t('handed-over'))}`}</span>
+        </div>`).join('')}</div>` : `<p class="community-hint">${this.esc(this.t('mod-empty'))}</p>`}
+      <h4>${this.esc(this.t('user-reports'))}</h4>
+      ${reports.length ? reports.map(r => `
+        <div class="community-note"><code>${this.esc(r.slug)}</code> ${this.esc(r.reason)}
+          <span class="community-hint">· ${this.esc(this.formatTime(r.created_at))}${r.resolved ? ` · ${this.esc(this.t('resolved'))}` : ''}</span>
+        </div>`).join('') : `<p class="community-hint">${this.esc(this.t('no-reports-item'))}</p>`}`;
+
+    const errorBox = panel.querySelector('.form-error');
+    const saved = panel.querySelector('.mod-saved');
+    const run = async (work, message) => {
+      errorBox.hidden = true;
+      saved.hidden = true;
+      try {
+        const result = await work();
+        if (message) {
+          saved.textContent = message(result);
+          saved.hidden = false;
+        }
+        return true;
+      } catch (error) {
+        errorBox.textContent = this.t('error', {message: error.message});
+        errorBox.hidden = false;
+        return false;
+      }
+    };
+    panel.querySelector('[data-user="save"]').addEventListener('click', () => {
+      const trusted = panel.querySelector('[data-user-field="trusted"]');
+      const body = {note: panel.querySelector('[data-user-field="note"]').value.trim() || null};
+      if (trusted) body.trusted = trusted.checked;
+      run(() => this.request('PATCH', base, body), () => this.t('saved'));
+    });
+    panel.querySelector('[data-user="sign-out"]')?.addEventListener('click', () => {
+      if (!confirm(this.t('confirm-sign-out-all', {login}))) return;
+      run(() => this.request('POST', `${base}/sign-out`), r => this.t('signed-out', {n: r.sessions}));
+    });
+    panel.querySelector('[data-user="ratings"]')?.addEventListener('click', () => {
+      if (!confirm(this.t('confirm-remove-ratings', {login}))) return;
+      run(() => this.request('DELETE', `${base}/ratings`), r => this.t('ratings-removed', {n: r.ratings}));
+    });
+    panel.querySelectorAll('[data-user="ban"], [data-user="unban"]').forEach(btn => btn.addEventListener('click', async () => {
+      const action = btn.dataset.user;
+      if (!confirm(this.t(`confirm-${action}`, {login}))) return;
+      if (await run(() => this.request('POST', `${base}/${action}`))) this.renderUserPanel(panel, login);
+    }));
+    // An item opens in All items, found by its folder name
+    panel.querySelectorAll('[data-goto]').forEach(btn => btn.addEventListener('click', () => {
+      this.modSearch = btn.dataset.goto;
+      this.modStatus = 'apps';
+      this.show('mod');
+    }));
   }
 
   renderModApp(a, options) {
     const name = a.name[this.app.currentLang] || a.name.uk || a.name.en || a.slug;
-    const search = [a.slug, name, a.author, a.owner].join(' ').toLowerCase();
+    const search = [a.slug, name, a.author, a.owner, a.created_by || ''].join(' ').toLowerCase();
+    const facts = [
+      this.t('versions-count', {n: a.versions}),
+      a.pending ? this.t('pending-count', {n: a.pending}) : '',
+      a.rating && a.rating.count ? `★ ${a.rating.average} (${a.rating.count})` : '',
+      a.open_reports ? this.t('reports-count', {n: a.open_reports}) : '',
+      `${this.t('created-by')}: ${a.created_by || this.t('created-by-import')}`,
+    ].filter(Boolean);
     return `
-      <div class="community-card" data-search="${this.esc(search)}">
+      <div class="community-card" data-search="${this.esc(search)}" data-slug="${this.esc(a.slug)}">
         <div class="community-card-head">
           <div>
             <h3>${this.esc(name)}</h3>
             <code class="community-slug">${this.esc(a.slug)}</code>
-            <span class="community-hint">${this.esc(a.kind)} · ${this.esc(a.status)} · ${this.esc(this.t('by'))} ${this.esc(a.author)}${
+            ${this.statusBadge(a.status)}
+            <span class="community-hint">${this.esc(a.kind)} · ${this.esc(this.t('by'))} ${this.esc(a.author)}${
                 a.unclaimed ? ` · ${this.esc(this.t('unclaimed'))}` : ''}</span>
+            <div class="community-hint${a.open_reports ? ' mod-alert' : ''}">${this.esc(facts.join(' · '))}</div>
           </div>
-          <label class="form-field mod-owner">
-            <span class="form-label">${this.esc(this.t('owner'))}</span>
-            <select data-owner-of="${this.esc(a.slug)}" data-current="${this.esc(a.owner)}">${options}</select>
-          </label>
+          <div class="community-actions">
+            <label class="form-field mod-owner">
+              <span class="form-label">${this.esc(this.t('owner'))}</span>
+              <select data-owner-of="${this.esc(a.slug)}" data-current="${this.esc(a.owner)}">${options}</select>
+            </label>
+            <button class="btn-sm" data-manage="${this.esc(a.slug)}">${this.esc(this.t('manage'))}</button>
+          </div>
         </div>
+        <div class="mod-panel" hidden></div>
       </div>`;
   }
 
@@ -1400,17 +1722,23 @@ class CommunityUI {
         `<button class="btn-sm danger" data-user-action="ban" data-login="${this.esc(u.login)}">${this.esc(this.t('ban'))}</button>`;
     const profile = u.system ? '' :
         ` · <a href="https://github.com/${encodeURIComponent(u.login)}" target="_blank" rel="noopener noreferrer">GitHub</a>`;
+    const flags = [u.trusted ? this.t('trusted') : '', u.has_note ? this.t('note-badge') : ''].filter(Boolean);
     return `
-      <div class="community-card" data-search="${this.esc(search)}">
+      <div class="community-card" data-search="${this.esc(search)}" data-login="${this.esc(u.login)}">
         <div class="community-card-head">
           <div>
             <h3>${this.esc(u.name || u.login)}</h3>
             <code class="community-slug">@${this.esc(u.login)}</code>
             <span class="community-hint">${this.esc(role)} · ${this.esc(this.t('items-count', {n: u.items}))} · ${
                 this.esc(this.t('joined', {date: this.formatTime(u.created_at)}))}${profile}</span>
+            ${flags.length ? `<div class="community-hint">${this.esc(flags.join(' · '))}</div>` : ''}
           </div>
-          <div class="community-actions">${action}</div>
+          <div class="community-actions">
+            <button class="btn-sm" data-details="${this.esc(u.login)}">${this.esc(this.t('details'))}</button>
+            ${action}
+          </div>
         </div>
+        <div class="mod-panel" hidden></div>
       </div>`;
   }
 

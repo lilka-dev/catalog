@@ -107,7 +107,12 @@ Moderators are GitHub numeric user ids in `MODERATORS` of `api/wrangler.toml`.
 They see a **Moderation** tab: versions waiting for review with code and image
 preview, checksums and the antivirus result; approve, reject with a reason, ban
 an author; open reports. **All items** lists every app, wallpaper and mod with
-an owner selector, **Users** everyone who has signed in, with ban and unban.
+an owner selector and **Manage**: edit every field including the author
+line, publish or hide, review each version with its files, see and resolve
+the item's reports, delete it for good. **Users** lists everyone who has
+signed in; **Details** shows their activity, items and reports, and lets a
+moderator mark them trusted (no item limits; still scanned and reviewed),
+keep a private note, end their sessions, remove their ratings, ban or unban.
 
 New uploads are announced in a GitHub issue labelled `moderation` (see
 [api/README.md](api/README.md#lifecycle-of-an-upload)).
