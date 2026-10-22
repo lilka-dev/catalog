@@ -175,7 +175,8 @@ All bodies are JSON unless noted. Authenticated calls send
 | GET | `/catalog/{apps,wallpapers,mods}/index_<n>.json` | mirror job | Ids of published items, 12 per page |
 | GET | `/catalog/<dir>/<id>/index.json`, `index_short.json` | mirror job | Manifests in build.py's format |
 | GET | `/catalog/<dir>/<id>/static/<file>`, `package.zip` | mirror job | Files |
-| GET | `/catalog/authors.json` | mirror job | Items grouped by author |
+| GET | `/catalog/authors.json` | mirror job | Items grouped by author line (build.py's format) |
+| GET | `/catalog/authors_info.json` | mirror job | The website's Authors tab: one entry per person (GitHub logins merged ignoring case), public GitHub profile of authors who signed in, Printables links for mod authors, item counts and dates |
 | GET | `/catalog/export.json` | mirror job | Everything above in one response, plus versions and a stamp |
 | GET | `/apps?kind=&q=&page=` | user | Published apps, 24 per page |
 | GET | `/apps/:slug` | user / owner | Detail with versions; owner also sees drafts and statuses |
