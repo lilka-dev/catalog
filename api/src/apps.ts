@@ -16,7 +16,7 @@ import { MAX_UPLOAD_BYTES, createVersion, objectKey, readVersionForm } from './v
 const PAGE_SIZE = 24;
 /** Unreviewed uploads per user: keeps one account from flooding the queue. */
 const MAX_PENDING_PER_USER = 5;
-/** Apps per account, drafts included: stops slug squatting and spam. */
+/** Apps an account created, drafts included: stops slug squatting and spam. */
 const MAX_APPS_PER_USER = 20;
 /** New apps, wallpapers and mods per account in any 24 hours. */
 export const MAX_NEW_ITEMS_PER_DAY = 3;
@@ -320,29 +320,30 @@ apps.post('/', async (c) => {
     const exists = await c.env.DB.prepare(`SELECT 1 FROM apps WHERE slug = ?`).bind(body.slug).first();
     if (exists) fail(409, 'slug is taken');
     if (user.role !== 'moderator') {
-        const owned = await c.env.DB.prepare(`SELECT COUNT(*) AS n FROM apps WHERE owner_id = ?`)
-            .bind(user.id)
-            .first<{ n: number }>();
-        if ((owned?.n ?? 0) >= MAX_APPS_PER_USER) fail(429, `at most ${MAX_APPS_PER_USER} apps per account`);
         // Counted from the table: it holds across Worker instances and over a
-        // whole day, which the per-minute rate limiters cannot do
-        const today = await c.env.DB.prepare(
-            `SELECT COUNT(*) AS n FROM apps WHERE owner_id = ? AND created_at > datetime('now', '-1 day')`,
+        // whole day, which the per-minute rate limiters cannot do. Both count
+        // what the user created, not imports handed over to them (migration 0007)
+        const counts = await c.env.DB.prepare(
+            `SELECT COUNT(*) AS total, COALESCE(SUM(created_at > datetime('now', '-1 day')), 0) AS today
+               FROM apps WHERE created_by = ?`,
         )
             .bind(user.id)
-            .first<{ n: number }>();
-        if ((today?.n ?? 0) >= MAX_NEW_ITEMS_PER_DAY) {
+            .first<{ total: number; today: number }>();
+        if ((counts?.total ?? 0) >= MAX_APPS_PER_USER) fail(429, `at most ${MAX_APPS_PER_USER} apps per account`);
+        // The 4th item within 24 hours is refused: 3 are allowed
+        if ((counts?.today ?? 0) >= MAX_NEW_ITEMS_PER_DAY) {
             fail(429, `at most ${MAX_NEW_ITEMS_PER_DAY} new items per day, try again tomorrow`);
         }
     }
 
     await c.env.DB.prepare(
-        `INSERT INTO apps (slug, owner_id, kind, name_uk, name_en, short_uk, short_en,
+        `INSERT INTO apps (slug, owner_id, created_by, kind, name_uk, name_en, short_uk, short_en,
                            description_uk, description_en, sources_type, sources_url, license)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
         .bind(
             body.slug,
+            user.id,
             user.id,
             kind,
             name.uk,
