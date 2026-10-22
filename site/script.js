@@ -1,7 +1,7 @@
 // Static UI strings per language, applied to elements with [data-i18n]
 // Cards per page; listing.json holds every item, pages are cut here
 const PAGE_SIZE = 12;
-const SORTS = ['newest', 'updated', 'name', 'author'];
+const SORTS = ['newest', 'updated', 'rating', 'name', 'author'];
 const DEFAULT_SORT = 'newest';
 
 const UI_STRINGS = {
@@ -17,6 +17,7 @@ const UI_STRINGS = {
     'sort-updated': 'Нещодавно оновлені',
     'sort-name': 'Назва',
     'sort-author': 'Автор',
+    'sort-rating': 'Найкраща оцінка',
     'sort-reverse': 'Зворотний порядок',
     'card-added': 'Додано {date}',
     'card-updated': 'Оновлено {date}',
@@ -68,6 +69,7 @@ const UI_STRINGS = {
     'sort-updated': 'Recently updated',
     'sort-name': 'Name',
     'sort-author': 'Author',
+    'sort-rating': 'Top rated',
     'sort-reverse': 'Reverse order',
     'card-added': 'Added {date}',
     'card-updated': 'Updated {date}',
@@ -310,6 +312,9 @@ class LilkaRepository {
     const compare = {
       newest: byDate('added'),
       updated: byDate('updated'),
+      // Unrated last; more votes win a tie
+      rating: (a, b) => ((b.rating && b.rating.average) || 0) - ((a.rating && a.rating.average) || 0) ||
+          ((b.rating && b.rating.count) || 0) - ((a.rating && a.rating.count) || 0) || byName(a, b),
       name: byName,
       author: (a, b) => collator.compare(String(a.author || ''), String(b.author || '')) || byName(a, b),
     }[this.sort] || byName;
@@ -1073,9 +1078,18 @@ class LilkaRepository {
     return card;
   }
 
-  // Last update, from listing.json; manifests have none
+  listingEntry(type, path) {
+    return (this.listings[type] || []).find(e => e.path === path) || null;
+  }
+
+  // Rating and last update, from listing.json; manifests have neither
   renderCardMeta(entry) {
     const parts = [];
+    if (entry.rating && entry.rating.count) {
+      parts.push(`<span class="card-rating" title="${this.escapeHtml(String(entry.rating.count))}">★ ${
+          this.escapeHtml(String(entry.rating.average))} <span class="card-rating-count">(${
+          this.escapeHtml(String(entry.rating.count))})</span></span>`);
+    }
     // The date the list is sorted by; "updated" otherwise
     const key = this.sort === 'newest' ? 'added' : 'updated';
     const date = this.formatDate(entry[key]);
@@ -1390,6 +1404,11 @@ class LilkaRepository {
         avInfo.hidden = !avInfo.hidden;
         avInfoBtn.setAttribute('aria-expanded', String(!avInfo.hidden));
       });
+    }
+
+    // Stars and "rate this" for signed-in users (community.js)
+    if (this.community) {
+      this.community.mountRating(modalBody, type, manifestName, this.listingEntry(type, manifestName));
     }
 
     // Copy-hash buttons

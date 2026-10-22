@@ -1,6 +1,6 @@
 import { Hono, type Context } from 'hono';
 import type { AppEnv, Env } from './env';
-import { displayAuthor, kindDir, type AppRow } from './apps';
+import { displayAuthor, kindDir, ratingSummary, type AppRow } from './apps';
 import { contentTypeOf, fail, parseJsonArray, sha256Hex } from './util';
 import { objectKey } from './versions';
 
@@ -48,6 +48,8 @@ interface CatalogRow extends AppRow {
     owner_blog: string | null;
     owner_location: string | null;
     owner_company: string | null;
+    rating_count: number;
+    rating_sum: number | null;
 }
 
 /** Published apps with their latest approved version, sorted like Python's sorted(os.listdir()). */
@@ -67,10 +69,12 @@ async function published(env: Env, kind?: AppRow['kind'], slug?: string): Promis
                 u.bio AS owner_bio, u.blog AS owner_blog, u.location AS owner_location, u.company AS owner_company,
                 v.id AS v_id, v.keira_version, v.entry_type, v.entry_file, v.files, v.files_meta, v.icon, v.icon_min,
                 v.screenshots, v.changelog, v.changelog_en, v.package, v.security, v.storage_prefix,
-                v.approved_at
+                v.approved_at, COALESCE(r.n, 0) AS rating_count, r.total AS rating_sum
            FROM apps a
            JOIN users u ON u.id = a.owner_id
            JOIN versions v ON v.id = a.latest_version_id
+           -- Every rating once per export (the hourly mirror run), not per vote
+           LEFT JOIN (SELECT app_id, COUNT(*) AS n, SUM(stars) AS total FROM ratings GROUP BY app_id) r ON r.app_id = a.id
           WHERE ${where.join(' AND ')}
           ORDER BY a.slug COLLATE BINARY`,
     )
@@ -349,7 +353,7 @@ function authorsInfoDoc(rows: CatalogRow[]) {
  * listing.json: everything the website's list needs for one kind, in one file.
  *
  * Not part of the old build.py layout and not read by Keira, so it can carry
- * what the catalog list sorts by (dates, author) without touching the
+ * what the catalog list sorts by (dates, author, rating) without touching the
  * manifests devices parse. It also turns a list page from 1 index plus 12
  * manifests into one request.
  */
@@ -365,6 +369,7 @@ function listingDoc(rows: CatalogRow[]) {
                 icon: row.icon ?? '',
                 added: row.published_at ?? row.approved_at,
                 updated: row.approved_at,
+                rating: ratingSummary(row.rating_count, row.rating_sum),
             };
             if (Object.keys(loc).length) {
                 entry.languages = Object.keys(loc);

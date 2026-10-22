@@ -94,6 +94,19 @@ call 404 "approved file is not served to strangers" "${fan[@]}" "$API/files/smok
 call 200 "owner gets the approved file" "${user[@]}" "$API/files/smoke-hello/$version_id/hello.lua"
 call 200 "HEAD for the owner" -I "${user[@]}" "$API/files/smoke-hello/$version_id/hello.lua"
 
+call 401 "rating needs a session" "${json[@]}" -X PUT "$API/apps/smoke-hello/rating" -d '{"stars":5}'
+call 403 "owner cannot rate own app" "${user[@]}" "${json[@]}" -X PUT "$API/apps/smoke-hello/rating" -d '{"stars":5}'
+call 400 "stars must be 1..5" "${fan[@]}" "${json[@]}" -X PUT "$API/apps/smoke-hello/rating" -d '{"stars":6}'
+call 200 "rate" "${fan[@]}" "${json[@]}" -X PUT "$API/apps/smoke-hello/rating" -d '{"stars":2}'
+call 200 "change the rating" "${fan[@]}" "${json[@]}" -X PUT "$API/apps/smoke-hello/rating" -d '{"stars":4}'
+check "rating answer has the fresh average" '{"my_rating":4,"average":4,"count":1}' "$(jq -c . "$work/body")"
+call 200 "moderator rates too" "${mod[@]}" "${json[@]}" -X PUT "$API/apps/smoke-hello/rating" -d '{"stars":5}'
+check "average of two" "4.5 2" "$(jq -r '"\(.average) \(.count)"' "$work/body")"
+call 200 "own ratings come with the session check" "${fan[@]}" "$API/auth/me"
+check "/auth/me carries the user's ratings" 4 "$(jq -r '.ratings["smoke-hello"]' "$work/body")"
+call 200 "remove a rating" "${mod[@]}" -X DELETE "$API/apps/smoke-hello/rating"
+check "removed rating is gone" null "$(curl -sS "${mod[@]}" "$API/auth/me" | jq -r '.ratings["smoke-hello"]')"
+call 404 "no rating for a draft" "${fan[@]}" "${json[@]}" -X PUT "$API/apps/smoke-mod-x/rating" -d '{"stars":3}'
 call 201 "report" "${fan[@]}" "${json[@]}" -X POST "$API/apps/smoke-hello/reports" -d '{"reason":"smoke"}'
 call 200 "open reports" "${mod[@]}" "$API/mod/reports"
 
@@ -113,9 +126,9 @@ jq -e '."@smoke-dev"[0].path == "smoke-hello"' "$work/body" >/dev/null || { echo
 call 404 "catalog unknown kind" "${mirror[@]}" "$API/catalog/games/index_0.json"
 call 401 "listing.json needs the mirror secret" "$API/catalog/apps/listing.json"
 call 200 "listing.json for the site" "${mirror[@]}" "$API/catalog/apps/listing.json"
-jq -e '.items[] | select(.path == "smoke-hello") | (.added != null) and (.updated != null) and .author == "@smoke-dev"' \
+jq -e '.items[] | select(.path == "smoke-hello") | (.added != null) and (.updated != null) and .rating.average == 4 and .rating.count == 1 and .author == "@smoke-dev"' \
     "$work/body" >/dev/null && li=ok || li="$(jq -c '.items[] | select(.path == "smoke-hello")' "$work/body")"
-check "listing has dates and author" ok "$li"
+check "listing has dates, rating and author" ok "$li"
 pub=$(npx wrangler d1 execute lilka-catalog --local --json --command "SELECT published_at FROM apps WHERE slug = 'smoke-hello'" 2>/dev/null | jq -r '.[0].results[0].published_at')
 check "published_at set on first approval" ok "$([ -n "$pub" ] && [ "$pub" != null ] && echo ok || echo missing)"
 
@@ -244,6 +257,14 @@ check "OAuth state is a signed token, not a stored row" ok "$(printf '%s' "$stat
 sig=${state#*.}; first=${sig:0:1}; [ "$first" = A ] && swap=B || swap=A
 call 400 "tampered OAuth state refused" "$API/auth/callback?code=x&state=${state%%.*}.$swap${sig:1}"
 call 400 "made-up OAuth state refused" "$API/auth/callback?code=x&state=eyJyIjoiaHR0cHM6Ly9ldmlsLmV4YW1wbGUvIn0.AAAA"
+
+npx wrangler d1 execute lilka-catalog --local --command "
+INSERT INTO users (id, login, role) VALUES (5, 'smoke-troll', 'user');
+INSERT INTO sessions VALUES ('$(sha troll-token)', 5, datetime('now', '+1 day'));" >/dev/null
+call 200 "troll rates" -H "Authorization: Bearer troll-token" "${json[@]}" -X PUT "$API/apps/smoke-hello/rating" -d '{"stars":1}'
+call 200 "moderator bans the troll" "${mod[@]}" -X POST "$API/mod/users/smoke-troll/ban"
+trolls=$(npx wrangler d1 execute lilka-catalog --local --json --command "SELECT COUNT(*) AS n FROM ratings WHERE user_id = 5" 2>/dev/null | jq -r '.[0].results[0].n')
+check "a ban removes the user's ratings" 0 "$trolls"
 
 # Last, because it uses up this IP's budget for a minute
 limited=$(seq 1 330 | xargs -P 30 -I{} curl -s -o /dev/null -w '%{http_code}\n' "$API/" | grep -c '^429$' || true)

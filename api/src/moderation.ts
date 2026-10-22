@@ -186,7 +186,7 @@ moderation.get('/apps', async (c) => {
     });
 });
 
-/** A ban also hides every app of the user and ends their sessions. */
+/** A ban also hides every app of the user, drops their ratings and ends their sessions. */
 moderation.post('/users/:login/ban', async (c) => {
     const user = await c.env.DB.prepare(`SELECT id, role FROM users WHERE login = ? COLLATE NOCASE`)
         .bind(c.req.param('login'))
@@ -200,6 +200,7 @@ moderation.post('/users/:login/ban', async (c) => {
         c.env.DB.prepare(`UPDATE apps SET status = 'hidden', updated_at = datetime('now') WHERE owner_id = ?`).bind(
             user.id,
         ),
+        c.env.DB.prepare(`DELETE FROM ratings WHERE user_id = ?`).bind(user.id),
         c.env.DB.prepare(`DELETE FROM sessions WHERE user_id = ?`).bind(user.id),
     ]);
     c.executionCtx.waitUntil(dispatch(c.env, c.env.CATALOG_REPO, 'api-sync', {}));

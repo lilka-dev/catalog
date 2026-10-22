@@ -2166,3 +2166,50 @@ footer {
 .list-toolbar[hidden] {
     display: none;
 }
+
+/* Ratings (script.js card badge, community.js mountRating) */
+.item-card .card-rating {
+    color: var(--warning);
+    font-weight: 600;
+}
+
+.item-card .card-rating-count {
+    color: var(--text-muted);
+    font-weight: 400;
+}
+
+.rating-section .rating-summary {
+    color: var(--text-secondary);
+    margin-bottom: 0.5rem;
+}
+
+.rating-action {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.rating-star {
+    background: none;
+    border: none;
+    color: var(--border-solid);
+    font-size: 1.5rem;
+    line-height: 1;
+    padding: 0 0.1rem;
+    cursor: pointer;
+    transition: color var(--transition), transform var(--transition);
+}
+
+.rating-star.on,
+.rating-star:focus-visible {
+    color: var(--warning);
+}
+
+.rating-star:hover {
+    transform: scale(1.15);
+}
+
+.rating-star:disabled {
+    cursor: wait;
+}

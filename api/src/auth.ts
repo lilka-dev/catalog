@@ -172,7 +172,19 @@ auth.post('/logout', async (c) => {
     return c.json({ ok: true });
 });
 
-auth.get('/me', (c) => c.json({ user: requireUser(c) }));
+/**
+ * The session check the site makes once per page load. It also carries the
+ * user's own ratings, so showing "your rating" costs no request per app.
+ */
+auth.get('/me', async (c) => {
+    const user = requireUser(c);
+    const { results } = await c.env.DB.prepare(
+        `SELECT a.slug, r.stars FROM ratings r JOIN apps a ON a.id = r.app_id WHERE r.user_id = ? LIMIT 2000`,
+    )
+        .bind(user.id)
+        .all<{ slug: string; stars: number }>();
+    return c.json({ user, ratings: Object.fromEntries(results.map((r) => [r.slug, r.stars])) });
+});
 
 /**
  * Creates or refreshes the user and opens a session.
