@@ -152,6 +152,12 @@ call 409 "catalog account cannot be banned" "${mod[@]}" -X POST "$API/mod/users/
 call 404 "hand over needs a signed-in user" "${mod[@]}" "${json[@]}" -X PATCH "$API/apps/Smoke_Import" -d '{"owner":"nobody-here"}'
 call 200 "moderator hands the import over" "${mod[@]}" "${json[@]}" -X PATCH "$API/apps/Smoke_Import" -d '{"owner":"smoke-dev"}'
 check "new owner sees it in their apps" ok "$(curl -sS "${user[@]}" "$API/users/smoke-dev/apps" | jq -r '[.items[].slug] | index("Smoke_Import") | if . == null then "missing" else "ok" end')"
+# The import handed over today was created by the import, not by smoke-dev:
+# with their own 2 items today they may add a 3rd, and only the 4th is refused
+newapp() { curl -s -o "$work/body" -w '%{http_code}' "${user[@]}" "${json[@]}" -X POST "$API/apps" \
+    -d "{\"slug\":\"$1\",\"kind\":\"app\",\"name\":\"s\",\"short_description\":\"s\",\"sources_url\":\"https://github.com/a/b\"}"; }
+check "a handed-over import does not count as a new item" 201 "$(newapp smoke-third)"
+check "the 4th own item in a day is refused" 429 "$(newapp smoke-fourth)"
 call 200 "app after hand-over" "${mod[@]}" "$API/apps/Smoke_Import"
 check "author line kept after hand-over" "@smoke-dev" "$(jq -r .author "$work/body")"
 call 404 "import is not public before processing" "${mirror[@]}" "$API/catalog/apps/Smoke_Import/index.json"
@@ -174,8 +180,8 @@ check "daily cap says so" ok "$msg"
 # Yesterday's items no longer count, but 20 per account still holds
 npx wrangler d1 execute lilka-catalog --local --command "
 UPDATE apps SET created_at = datetime('now', '-2 days') WHERE owner_id = 3;
-INSERT INTO apps (slug, owner_id, kind, sources_url, created_at)
-SELECT 'fan-old-' || value, 3, 'app', 'https://github.com/a/b', datetime('now', '-2 days')
+INSERT INTO apps (slug, owner_id, created_by, kind, sources_url, created_at)
+SELECT 'fan-old-' || value, 3, 3, 'app', 'https://github.com/a/b', datetime('now', '-2 days')
   FROM json_each('[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]');" >/dev/null
 check "a day later the fan can add again" 1 "$(spam 1 fan-next)"
 check "apps per account capped at 20" 0 "$(spam 1 fan-over)"

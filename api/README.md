@@ -288,7 +288,8 @@ the code controls is what a request costs:
   few rows per item instead of a scan per item;
 - rate limits per IP (300/min), per user for writes (60/min) and uploads
   (10/min) run before any database work;
-- per account: 3 new items a day, 20 in all, 5 versions waiting for review
+- per account: 3 new items a day, 20 in all (both count items the user
+  created, not imports handed over to them), 5 versions waiting for review
   (moderators are exempt);
 - on the free plan the limits are hard caps: a flood can stop the API until
   00:00 UTC, but never costs money. Do not move to a paid plan without a
