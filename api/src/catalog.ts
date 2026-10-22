@@ -12,6 +12,7 @@ import { objectKey } from './versions';
  *   /catalog/<dir>/<id>/index.json, index_short.json, package.zip
  *   /catalog/<dir>/<id>/static/<file>
  *   /catalog/authors.json
+ *   /catalog/authors_info.json   (website only, see authorsInfoDoc)
  *
  * Keira's lilcatalog requests these paths under CATALOG_BASE_URL, and the
  * Pages mirror is a plain copy of this tree, so every field name and its order
@@ -42,6 +43,11 @@ interface CatalogRow extends AppRow {
     package: string | null;
     security: string | null;
     storage_prefix: string;
+    owner_name: string | null;
+    owner_bio: string | null;
+    owner_blog: string | null;
+    owner_location: string | null;
+    owner_company: string | null;
 }
 
 /** Published apps with their latest approved version, sorted like Python's sorted(os.listdir()). */
@@ -57,7 +63,8 @@ async function published(env: Env, kind?: AppRow['kind'], slug?: string): Promis
         params.push(slug);
     }
     const { results } = await env.DB.prepare(
-        `SELECT a.*, u.login AS owner_login, u.avatar_url AS owner_avatar,
+        `SELECT a.*, u.login AS owner_login, u.avatar_url AS owner_avatar, u.name AS owner_name,
+                u.bio AS owner_bio, u.blog AS owner_blog, u.location AS owner_location, u.company AS owner_company,
                 v.id AS v_id, v.keira_version, v.entry_type, v.entry_file, v.files, v.files_meta, v.icon, v.icon_min,
                 v.screenshots, v.changelog, v.changelog_en, v.package, v.security, v.storage_prefix,
                 v.approved_at
@@ -225,6 +232,119 @@ function authorsDoc(rows: CatalogRow[]): Record<string, unknown[]> {
     return sorted;
 }
 
+const GITHUB_LOGIN = /^@([A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?)$/;
+/** Mods credit their Printables author as `@Name_12345`, which is that profile's address. */
+const PRINTABLES_HANDLE = /^@([A-Za-z0-9_-]+_\d+)$/;
+
+/**
+ * authors_info.json: the website's Authors tab, one entry per person.
+ *
+ * authors.json groups by the exact author line, so "@ImbirWithoutSugar" from
+ * an old manifest and the owner's login "imbirwithoutsugar" were two authors.
+ * Here a line that is a GitHub login is grouped by that login, ignoring case,
+ * and an author who has signed in gets their public GitHub profile. Free-text
+ * lines (mods credit Printables names) stay as they are, without a profile.
+ * Keira does not read this file.
+ */
+function authorsInfoDoc(rows: CatalogRow[]) {
+    interface Author {
+        id: string;
+        name: string;
+        handle: string | null;
+        login: string | null;
+        github: string | null;
+        printables: string | null;
+        avatar: string | null;
+        bio: string | null;
+        location: string | null;
+        company: string | null;
+        blog: string | null;
+        registered: boolean;
+        aliases: string[];
+        counts: Record<'apps' | 'wallpapers' | 'mods', number>;
+        first_added: string | null;
+        last_updated: string | null;
+        items: Record<string, unknown>[];
+    }
+    const authors = new Map<string, Author>();
+    const min = (a: string | null, b: string | null) => (!a ? b : !b ? a : a < b ? a : b);
+    const max = (a: string | null, b: string | null) => (!a ? b : !b ? a : a > b ? a : b);
+
+    for (const row of rows) {
+        const line = displayAuthor(row);
+        const login = GITHUB_LOGIN.exec(line)?.[1] ?? null;
+        // The profile is the owner's only when the line names the owner
+        const own = !!login && login.toLowerCase() === row.owner_login.toLowerCase() && row.owner_id !== 0;
+        const id = login ? login.toLowerCase() : line.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '') || 'unknown';
+        let author = authors.get(id);
+        if (!author) {
+            const printables = !login && PRINTABLES_HANDLE.test(line);
+            author = {
+                id,
+                // "@BFB_Workshop_1838755" reads as "BFB Workshop"; the handle stays in `handle`
+                name: login ?? (printables ? line.slice(1).replace(/_\d+$/, '').replace(/_/g, ' ') : line),
+                handle: login ? `@${login}` : printables ? line : null,
+                login,
+                github: login ? `https://github.com/${login}` : null,
+                printables: printables ? `https://www.printables.com/${line}` : null,
+                // github.com/<login>.png redirects to the avatar, also for people who never signed in here
+                avatar: login ? `https://github.com/${login}.png?size=160` : null,
+                bio: null,
+                location: null,
+                company: null,
+                blog: null,
+                registered: false,
+                aliases: [],
+                counts: { apps: 0, wallpapers: 0, mods: 0 },
+                first_added: null,
+                last_updated: null,
+                items: [],
+            };
+            authors.set(id, author);
+        }
+        if (own && !author.registered) {
+            Object.assign(author, {
+                // GitHub's spelling of the login, not the old manifest's
+                name: row.owner_name || row.owner_login,
+                handle: `@${row.owner_login}`,
+                login: row.owner_login,
+                github: `https://github.com/${row.owner_login}`,
+                avatar: row.owner_avatar ?? author.avatar,
+                bio: row.owner_bio,
+                location: row.owner_location,
+                company: row.owner_company,
+                blog: row.owner_blog,
+                registered: true,
+            });
+        }
+        if (!author.aliases.includes(line)) author.aliases.push(line);
+
+        const dir = kindDir(row.kind);
+        const added = row.published_at ?? row.approved_at;
+        author.counts[dir] += 1;
+        author.first_added = min(author.first_added, added);
+        author.last_updated = max(author.last_updated, row.approved_at);
+        const loc = localization(row);
+        const entry: Record<string, unknown> = {
+            name: pick(loc, 'name'),
+            short_description: pick(loc, 'short_description'),
+            icon: row.icon ?? '',
+            path: row.slug,
+            type: dir,
+            added,
+            updated: row.approved_at,
+        };
+        if (Object.keys(loc).length) {
+            entry.languages = Object.keys(loc);
+            entry.localization = onlyFields(loc, ['name', 'short_description']);
+        }
+        author.items.push(entry);
+    }
+    const list = [...authors.values()].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    for (const author of list) author.items.sort((a, b) => String(b.updated ?? '').localeCompare(String(a.updated ?? '')));
+    return { authors: list };
+}
+
 /**
  * listing.json: everything the website's list needs for one kind, in one file.
  *
@@ -267,6 +387,7 @@ function indexDocs(rows: CatalogRow[]) {
 }
 
 catalog.get('/authors.json', async (c) => json(c, authorsDoc(await published(c.env))));
+catalog.get('/authors_info.json', async (c) => json(c, authorsInfoDoc(await published(c.env))));
 
 catalog.get('/:dir/listing.json', async (c) => json(c, listingDoc(await published(c.env, dirKind(c.req.param('dir'))))));
 
@@ -289,7 +410,10 @@ catalog.get('/:dir/:page{index_[0-9]+\\.json}', async (c) => {
  */
 catalog.get('/export.json', async (c) => {
     const rows = await published(c.env);
-    const documents: Record<string, string> = { 'authors.json': text(authorsDoc(rows)) };
+    const documents: Record<string, string> = {
+        'authors.json': text(authorsDoc(rows)),
+        'authors_info.json': text(authorsInfoDoc(rows)),
+    };
     const items: Record<string, { version: number; files: string[] }> = {};
     for (const dir of Object.keys(DIRS)) {
         const ofKind = rows.filter((row) => kindDir(row.kind) === dir);

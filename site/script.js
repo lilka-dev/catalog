@@ -20,6 +20,35 @@ const UI_STRINGS = {
     'sort-reverse': 'Зворотний порядок',
     'card-added': 'Додано {date}',
     'card-updated': 'Оновлено {date}',
+    'authors-title': 'Автори',
+    'authors-summary': 'Авторів: {authors} · елементів: {items}',
+    'authors-search': 'Пошук автора або додатка',
+    'authors-sort-items': 'Найбільше елементів',
+    'authors-sort-recent': 'Нещодавно активні',
+    'authors-sort-name': 'Імʼя',
+    'authors-sort-newest': 'Нові автори',
+    'authors-all': 'Усі',
+    'authors-empty': 'Нікого не знайдено.',
+    'authors-error': 'Не вдалося завантажити авторів: {message}',
+    'author-back': 'Усі автори',
+    'author-github': 'Профіль GitHub',
+    'author-website': 'Сайт',
+    'author-printables': 'Профіль Printables',
+    'author-first': 'Перший елемент: {date}',
+    'author-last': 'Останнє оновлення: {date}',
+    'author-active': 'Активність: {date}',
+    'author-copy': 'Копіювати посилання',
+    'author-copied': 'Скопійовано',
+    'author-verified': 'Підтверджений GitHub',
+    'author-verified-hint': 'Увійшов на сайт через GitHub і володіє цими елементами',
+    'author-not-found': 'Автора «{name}» не знайдено.',
+    'author-items': 'Роботи',
+    'kind-apps': 'Додатки',
+    'kind-wallpapers': 'Шпалери',
+    'kind-mods': 'Моди',
+    'kind-one-apps': 'Додаток',
+    'kind-one-wallpapers': 'Шпалери',
+    'kind-one-mods': 'Мод',
     'av-info-title': 'Як ми перевіряємо файли',
     'av-info-1': 'Кожен файл для завантаження (включно з package.zip) перевіряється антивірусом ClamAV у GitHub Actions одразу після завантаження в каталог, ще до публікації.',
     'av-info-2': 'Перед скануванням бази сигнатур оновлюються до найновіших (freshclam).',
@@ -42,6 +71,35 @@ const UI_STRINGS = {
     'sort-reverse': 'Reverse order',
     'card-added': 'Added {date}',
     'card-updated': 'Updated {date}',
+    'authors-title': 'Authors',
+    'authors-summary': '{authors} authors · {items} items',
+    'authors-search': 'Search authors or items',
+    'authors-sort-items': 'Most items',
+    'authors-sort-recent': 'Recently active',
+    'authors-sort-name': 'Name',
+    'authors-sort-newest': 'Newest authors',
+    'authors-all': 'All',
+    'authors-empty': 'Nobody found.',
+    'authors-error': 'Failed to load authors: {message}',
+    'author-back': 'All authors',
+    'author-github': 'GitHub profile',
+    'author-website': 'Website',
+    'author-printables': 'Printables profile',
+    'author-first': 'First item: {date}',
+    'author-last': 'Last update: {date}',
+    'author-active': 'Active {date}',
+    'author-copy': 'Copy link',
+    'author-copied': 'Copied',
+    'author-verified': 'Verified GitHub',
+    'author-verified-hint': 'Signed in with GitHub and owns these items',
+    'author-not-found': 'Author "{name}" not found.',
+    'author-items': 'Works',
+    'kind-apps': 'Apps',
+    'kind-wallpapers': 'Wallpapers',
+    'kind-mods': 'Mods',
+    'kind-one-apps': 'App',
+    'kind-one-wallpapers': 'Wallpaper',
+    'kind-one-mods': 'Mod',
     'av-info-title': 'How we check files',
     'av-info-1': 'Every downloadable file (including package.zip) is scanned with the ClamAV antivirus in GitHub Actions right after it is uploaded, before it is published.',
     'av-info-2': 'Virus signature databases are updated to the latest version (freshclam) right before scanning.',
@@ -131,7 +189,7 @@ class LilkaRepository {
     if (this.isCommunityView(this.currentType)) {
       this.community.refresh();
     } else if (this.currentType === 'authors') {
-      this.showAuthors();
+      this.showAuthors({push: false});
     } else {
       this.loadPage();
     }
@@ -139,7 +197,7 @@ class LilkaRepository {
     const modal = document.getElementById('modal');
     if (modal && modal.style.display === 'block' && this._currentManifest &&
         this._currentManifestName) {
-      this.showModal(this._currentManifest, this._currentManifestName);
+      this.showModal(this._currentManifest, this._currentManifestName, this._currentManifestType);
     }
   }
 
@@ -312,18 +370,8 @@ class LilkaRepository {
     // Handle authors page
     if (type === 'authors') {
       this.currentType = type;
-      const authorParam = params.get('author');
-      await this.showAuthors();
-      if (authorParam) {
-        const sectionId = `author-${this.authorSlug(authorParam)}`;
-        const section = document.getElementById(sectionId);
-        if (section) {
-          section.classList.remove('collapsed');
-          section.scrollIntoView({behavior: 'smooth', block: 'start'});
-          section.classList.add('author-highlight');
-          setTimeout(() => section.classList.remove('author-highlight'), 2000);
-        }
-      }
+      this.authorId = params.get('author') || null;
+      await this.showAuthors({push: false});
       return;
     }
 
@@ -451,6 +499,7 @@ class LilkaRepository {
         if (this.isCommunityView(type)) {
           this.community.show(type);
         } else if (type === 'authors') {
+          this.authorId = null;
           this.showAuthors();
         } else {
           this.switchType(type);
@@ -527,7 +576,15 @@ class LilkaRepository {
     document.getElementById('modal').style.display = 'none';
     this._currentManifest = null;
     this._currentManifestName = null;
-    // Return to list view URL
+    // Return to list view URL; on the Authors page, to the author
+    if (this.currentType === 'authors') {
+      const params = new URLSearchParams({type: 'authors'});
+      if (this.authorId) params.set('author', this.authorId);
+      if (location.search !== `?${params}`) {
+        window.history.pushState({type: 'authors', author: this.authorId}, '', `?${params}`);
+      }
+      return;
+    }
     this.updateURL(this.currentType, this.currentPage);
   }
 
@@ -544,108 +601,339 @@ class LilkaRepository {
     window.scrollTo({top: 0});
   }
 
-  async showAuthors() {
+  ui(key, vars = {}) {
+    const strings = UI_STRINGS[this.currentLang] || UI_STRINGS[this.defaultLanguage];
+    return String(strings[key] ?? key).replace(/\{(\w+)\}/g, (m, name) =>
+        name in vars ? String(vars[name]) : m);
+  }
+
+  /**
+   * authors_info.json: one entry per person, with profile and stats. A
+   * mirror built before it existed only has authors.json (author line ->
+   * items), which is turned into the same shape without profiles.
+   */
+  async loadAuthors() {
+    if (this.authorsData) return this.authorsData;
+    const info = await fetch(this.dataUrl('authors_info.json'));
+    if (info.ok) {
+      this.authorsData = (await info.json()).authors || [];
+      return this.authorsData;
+    }
+    const response = await fetch(this.dataUrl('authors.json'));
+    if (!response.ok) throw new Error(`authors.json: ${response.status}`);
+    const old = await response.json();
+    this.authorsData = Object.entries(old).map(([line, items]) => {
+      const login = (/^@([A-Za-z0-9-]+)$/.exec(line) || [])[1] || null;
+      const counts = {apps: 0, wallpapers: 0, mods: 0};
+      items.forEach(item => { counts[item.type] = (counts[item.type] || 0) + 1; });
+      return {
+        id: login ? login.toLowerCase() : this.authorSlug(line),
+        name: login || line, login,
+        github: login ? `https://github.com/${login}` : null,
+        avatar: login ? `https://github.com/${login}.png?size=160` : null,
+        aliases: [line], counts, items, registered: false,
+      };
+    });
+    return this.authorsData;
+  }
+
+  /** An author by id, or by the author line an item card links with. */
+  findAuthor(authors, key) {
+    const wanted = String(key || '').toLowerCase();
+    return authors.find(a => a.id === wanted ||
+        (a.aliases || []).some(alias => alias.toLowerCase() === wanted)) || null;
+  }
+
+  async showAuthors({push = true} = {}) {
+    this.currentType = 'authors';
     this.showView('authors');
-    const authorsContainer = document.getElementById('authors');
-
-    this.updateURL('authors');
-
-    try {
-      const response = await fetch(this.dataUrl('authors.json'));
-      if (!response.ok) {
-        throw new Error('Failed to load authors data');
+    const box = document.getElementById('authors');
+    if (push) {
+      const params = new URLSearchParams({type: 'authors'});
+      if (this.authorId) params.set('author', this.authorId);
+      if (location.search !== `?${params}`) {
+        window.history.pushState({type: 'authors', author: this.authorId}, '', `?${params}`);
       }
-      const authors = await response.json();
-      authorsContainer.innerHTML = this.renderAuthorsPage(authors);
-
-      // Add click handlers for author item cards
-      authorsContainer.querySelectorAll('.author-item-card').forEach(card => {
-        card.addEventListener('click', async () => {
-          const itemType = card.dataset.itemType;
-          const itemPath = card.dataset.itemPath;
-          try {
-            const manifestPath = `${itemType}/${itemPath}/index.json`;
-            const resp = await fetch(this.dataUrl(manifestPath));
-            if (!resp.ok) throw new Error(`Item not found: ${itemPath}`);
-            const manifest = await resp.json();
-            this.currentType = itemType;
-            this.showModal(manifest, itemPath);
-          } catch (err) {
-            console.error('Error opening item from authors:', err);
-          }
-        });
-      });
-
-      // Collapsible author sections
-      authorsContainer.querySelectorAll('.author-section-header')
-          .forEach(header => {
-            header.addEventListener('click', () => {
-              const section = header.closest('.author-section');
-              section.classList.toggle('collapsed');
-            });
-          });
+    }
+    if (!this.authorsData) {
+      box.innerHTML = `<div class="loading">${this.escapeHtml(this.ui('loading'))}</div>`;
+    }
+    try {
+      const authors = await this.loadAuthors();
+      if (this.authorId) {
+        this.renderAuthorPage(box, authors);
+      } else {
+        this.renderAuthorsGrid(box, authors);
+      }
     } catch (error) {
-      authorsContainer.innerHTML =
-          `<p style="color: var(--error);">Failed to load authors: ${
-              error.message}</p>`;
+      box.innerHTML = `<p class="authors-error">${
+          this.escapeHtml(this.ui('authors-error', {message: error.message}))}</p>`;
     }
   }
 
-  renderAuthorsPage(authors) {
-    const authorNames = Object.keys(authors);
-    let html = `<h2 class="authors-title">Authors (${authorNames.length})</h2>`;
+  openAuthor(id) {
+    this.authorId = id;
+    this.showAuthors();
+    window.scrollTo({top: 0});
+  }
 
-    for (const author of authorNames) {
-      const items = authors[author];
-      const apps = items.filter(i => i.type === 'apps');
-      const wallpapers = items.filter(i => i.type === 'wallpapers');
-      const mods = items.filter(i => i.type === 'mods');
-      const badge = [];
-      if (apps.length)
-        badge.push(`${apps.length} app${apps.length > 1 ? 's' : ''}`);
-      if (wallpapers.length)
-        badge.push(`${wallpapers.length} wallpaper${
-            wallpapers.length > 1 ? 's' : ''}`);
-      if (mods.length)
-        badge.push(`${mods.length} mod${mods.length > 1 ? 's' : ''}`);
+  /** Only http(s) links from the data reach an href. */
+  safeUrl(value) {
+    return typeof value === 'string' && /^https?:\/\//i.test(value) ? value : null;
+  }
 
-      const sectionId = `author-${this.authorSlug(author)}`;
-      html += `<div class="author-section" id="${sectionId}">`;
-      html += `<div class="author-section-header">`;
-      html +=
-          `<span class="author-section-name">${this.escapeHtml(author)}</span>`;
-      html += `<span class="author-section-badge">${badge.join(', ')}</span>`;
-      html += `<span class="author-section-toggle">&#9660;</span>`;
-      html += `</div>`;
-      html += `<div class="author-section-body">`;
-      html += `<div class="author-items-grid">`;
+  authorHandle(a) {
+    return a.handle || (a.login ? `@${a.login}` : '');
+  }
 
-      for (const item of items) {
-        const iconPath =
-            item.icon ? this.dataUrl(`${item.type}/${item.path}/static/${item.icon}`) : '';
-        const typeLabel =
-            {apps: 'App', wallpapers: 'Wallpaper', mods: 'Mod'}[item.type];
-        const itemName = this.localized(item, 'name');
-        const itemShortDesc = this.localized(item, 'short_description') || '';
-        html += `<div class="author-item-card" data-item-type="${
-            item.type}" data-item-path="${this.escapeHtml(item.path)}">`;
-        if (item.icon) {
-          html += `<img src="${iconPath}" alt="${
-              this.escapeHtml(
-                  itemName)}" class="icon" data-hide-broken>`;
-        }
-        html += `<h3>${this.escapeHtml(itemName)}</h3>`;
-        html += `<span class="author-item-type type-${item.type}">${
-            typeLabel}</span>`;
-        html +=
-            `<div class="short-desc">${this.escapeHtml(itemShortDesc)}</div>`;
-        html += `</div>`;
-      }
+  renderAvatar(author, size) {
+    const initial = ((author.name || '').match(/[\p{L}\p{N}]/u) || ['?'])[0].toUpperCase();
+    // The initial stays underneath; a broken image hides itself
+    return `<span class="author-avatar author-avatar-${size}" aria-hidden="true">
+        <span>${this.escapeHtml(initial)}</span>
+        ${this.safeUrl(author.avatar) ? `<img src="${this.escapeHtml(author.avatar)}" alt="" loading="lazy"
+            referrerpolicy="no-referrer" data-hide-broken>` : ''}
+      </span>`;
+  }
 
-      html += `</div></div></div>`;
+  renderAuthorCounts(counts) {
+    return ['apps', 'wallpapers', 'mods'].filter(kind => counts[kind]).map(kind =>
+        `<span class="author-count type-${kind}">${this.escapeHtml(this.ui(`kind-${kind}`))} <b>${
+            counts[kind]}</b></span>`).join('');
+  }
+
+  totalItems(author) {
+    const c = author.counts || {};
+    return (c.apps || 0) + (c.wallpapers || 0) + (c.mods || 0);
+  }
+
+  renderAuthorsGrid(box, authors) {
+    this.authorsSort = this.authorsSort || 'items';
+    this.authorsKind = this.authorsKind || 'all';
+    const sorts = ['items', 'recent', 'name', 'newest'];
+    const kinds = ['all', 'apps', 'wallpapers', 'mods'];
+    const total = authors.reduce((n, a) => n + this.totalItems(a), 0);
+    box.innerHTML = `
+      <div class="authors-head">
+        <div>
+          <h2 class="authors-title">${this.escapeHtml(this.ui('authors-title'))}</h2>
+          <p class="authors-summary">${this.escapeHtml(this.ui('authors-summary', {authors: authors.length, items: total}))}</p>
+        </div>
+      </div>
+      <div class="authors-toolbar">
+        <input type="search" class="authors-search" value="${this.escapeHtml(this.authorsQuery || '')}"
+            placeholder="${this.escapeHtml(this.ui('authors-search'))}" aria-label="${this.escapeHtml(this.ui('authors-search'))}">
+        <div class="authors-kinds" role="group">
+          ${kinds.map(kind => `<button type="button" class="authors-chip ${kind === this.authorsKind ? 'active' : ''}"
+              data-kind="${kind}">${this.escapeHtml(this.ui(kind === 'all' ? 'authors-all' : `kind-${kind}`))}</button>`).join('')}
+        </div>
+        <select class="authors-sort" aria-label="${this.escapeHtml(this.ui('sort-label'))}">
+          ${sorts.map(sort => `<option value="${sort}" ${sort === this.authorsSort ? 'selected' : ''}>${
+              this.escapeHtml(this.ui(`authors-sort-${sort}`))}</option>`).join('')}
+        </select>
+      </div>
+      <div class="authors-grid"></div>`;
+
+    const grid = box.querySelector('.authors-grid');
+    const draw = () => {
+      const q = (this.authorsQuery || '').trim().toLowerCase();
+      const collator = new Intl.Collator(this.currentLang, {sensitivity: 'base'});
+      const byName = (a, b) => collator.compare(a.name, b.name);
+      const compare = {
+        items: (a, b) => this.totalItems(b) - this.totalItems(a) || byName(a, b),
+        recent: (a, b) => String(b.last_updated || '').localeCompare(String(a.last_updated || '')) || byName(a, b),
+        newest: (a, b) => String(b.first_added || '').localeCompare(String(a.first_added || '')) || byName(a, b),
+        name: byName,
+      }[this.authorsSort];
+      const shown = authors.filter(a => {
+        if (this.authorsKind !== 'all' && !(a.counts || {})[this.authorsKind]) return false;
+        if (!q) return true;
+        const haystack = [a.name, a.login, a.bio, ...(a.aliases || []),
+          ...a.items.map(i => this.localized(i, 'name'))].join(' ').toLowerCase();
+        return haystack.includes(q);
+      }).sort(compare);
+      grid.innerHTML = shown.length ? shown.map(a => this.renderAuthorCard(a)).join('') :
+          `<p class="authors-empty">${this.escapeHtml(this.ui('authors-empty'))}</p>`;
+      grid.querySelectorAll('.author-card').forEach(card => {
+        card.addEventListener('click', (e) => {
+          // The GitHub link opens GitHub; a modified click opens a new tab
+          if (e.target.closest('.author-card-ext')) return;
+          if (e.metaKey || e.ctrlKey || e.shiftKey) return;
+          e.preventDefault();
+          this.openAuthor(card.dataset.author);
+        });
+      });
+    };
+    draw();
+
+    const search = box.querySelector('.authors-search');
+    search.addEventListener('input', () => {
+      this.authorsQuery = search.value;
+      draw();
+    });
+    box.querySelectorAll('.authors-chip').forEach(chip => chip.addEventListener('click', () => {
+      this.authorsKind = chip.dataset.kind;
+      box.querySelectorAll('.authors-chip').forEach(c => c.classList.toggle('active', c === chip));
+      draw();
+    }));
+    box.querySelector('.authors-sort').addEventListener('change', (e) => {
+      this.authorsSort = e.target.value;
+      draw();
+    });
+  }
+
+  renderAuthorCard(a) {
+    const href = `?type=authors&author=${encodeURIComponent(a.id)}`;
+    const active = this.formatDate(a.last_updated);
+    // The whole card opens the author; the title is the real link, for the
+    // keyboard and for opening in a new tab
+    return `
+      <div class="author-card" data-author="${this.escapeHtml(a.id)}">
+        <div class="author-card-top">
+          ${this.renderAvatar(a, 'md')}
+          <div class="author-card-names">
+            <h3><a class="author-card-link" href="${this.escapeHtml(href)}">${this.escapeHtml(a.name)}</a>${a.registered ?
+                ` <span class="author-verified" title="${this.escapeHtml(this.ui('author-verified-hint'))}">✓</span>` : ''}</h3>
+            ${this.authorHandle(a) ? `<span class="author-login">${this.escapeHtml(this.authorHandle(a))}</span>` : ''}
+          </div>
+        </div>
+        ${a.bio ? `<p class="author-card-bio">${this.escapeHtml(a.bio)}</p>` : ''}
+        <div class="author-counts">${this.renderAuthorCounts(a.counts || {})}</div>
+        <div class="author-card-foot">
+          <span>${active ? this.escapeHtml(this.ui('author-active', {date: active})) : ''}</span>
+          ${this.safeUrl(a.github) ? `<a class="author-card-ext" href="${this.escapeHtml(a.github)}" target="_blank"
+              rel="noopener noreferrer" title="${this.escapeHtml(this.ui('author-github'))}">GitHub ↗</a>` : ''}
+          ${this.safeUrl(a.printables) ? `<a class="author-card-ext" href="${this.escapeHtml(a.printables)}" target="_blank"
+              rel="noopener noreferrer" title="${this.escapeHtml(this.ui('author-printables'))}">Printables ↗</a>` : ''}
+        </div>
+      </div>`;
+  }
+
+  renderAuthorPage(box, authors) {
+    const a = this.findAuthor(authors, this.authorId);
+    const back = `<button type="button" class="author-back">← ${this.escapeHtml(this.ui('author-back'))}</button>`;
+    if (!a) {
+      box.innerHTML = `${back}<p class="authors-empty">${
+          this.escapeHtml(this.ui('author-not-found', {name: this.authorId}))}</p>`;
+      box.querySelector('.author-back').addEventListener('click', () => this.openAuthor(null));
+      return;
     }
+    // A link by author line becomes the canonical one
+    if (a.id !== this.authorId) {
+      this.authorId = a.id;
+      window.history.replaceState({type: 'authors', author: a.id}, '',
+          `?type=authors&author=${encodeURIComponent(a.id)}`);
+    }
+    this.authorItemsKind = this.authorItemsKind && (a.counts || {})[this.authorItemsKind] ? this.authorItemsKind : 'all';
 
-    return html;
+    const facts = [];
+    if (a.location) facts.push(`<span class="author-fact">📍 ${this.escapeHtml(a.location)}</span>`);
+    if (a.company) facts.push(`<span class="author-fact">🏢 ${this.escapeHtml(a.company)}</span>`);
+    if (this.safeUrl(a.blog)) {
+      const shown = a.blog.replace(/^https?:\/\//i, '').replace(/\/$/, '');
+      facts.push(`<a class="author-fact" href="${this.escapeHtml(a.blog)}" target="_blank" rel="noopener noreferrer nofollow ugc">🔗 ${
+          this.escapeHtml(shown)}</a>`);
+    }
+    const first = this.formatDate(a.first_added);
+    const last = this.formatDate(a.last_updated);
+    const kinds = ['all', ...['apps', 'wallpapers', 'mods'].filter(k => (a.counts || {})[k])];
+
+    box.innerHTML = `
+      ${back}
+      <section class="author-profile">
+        ${this.renderAvatar(a, 'lg')}
+        <div class="author-profile-main">
+          <h2>${this.escapeHtml(a.name)}</h2>
+          <div class="author-profile-sub">
+            ${this.authorHandle(a) ? `<span class="author-login">${this.escapeHtml(this.authorHandle(a))}</span>` : ''}
+            ${a.registered ? `<span class="author-badge" title="${this.escapeHtml(this.ui('author-verified-hint'))}">✓ ${
+                this.escapeHtml(this.ui('author-verified'))}</span>` : ''}
+          </div>
+          ${a.bio ? `<p class="author-profile-bio">${this.escapeHtml(a.bio)}</p>` : ''}
+          ${facts.length ? `<div class="author-facts">${facts.join('')}</div>` : ''}
+          <div class="author-counts">${this.renderAuthorCounts(a.counts || {})}</div>
+          <div class="author-dates">
+            ${first ? `<span>${this.escapeHtml(this.ui('author-first', {date: first}))}</span>` : ''}
+            ${last ? `<span>${this.escapeHtml(this.ui('author-last', {date: last}))}</span>` : ''}
+          </div>
+          <div class="author-profile-actions">
+            ${this.safeUrl(a.github) ? `<a class="btn-sm" href="${this.escapeHtml(a.github)}" target="_blank" rel="noopener noreferrer">${
+                this.escapeHtml(this.ui('author-github'))} ↗</a>` : ''}
+            ${this.safeUrl(a.printables) ? `<a class="btn-sm" href="${this.escapeHtml(a.printables)}" target="_blank" rel="noopener noreferrer">${
+                this.escapeHtml(this.ui('author-printables'))} ↗</a>` : ''}
+            <button type="button" class="btn-sm author-copy">${this.escapeHtml(this.ui('author-copy'))}</button>
+          </div>
+        </div>
+      </section>
+      <div class="author-items-head">
+        <h3>${this.escapeHtml(this.ui('author-items'))}</h3>
+        ${kinds.length > 2 ? `<div class="authors-kinds" role="group">${kinds.map(kind =>
+            `<button type="button" class="authors-chip ${kind === this.authorItemsKind ? 'active' : ''}" data-kind="${kind}">${
+                this.escapeHtml(this.ui(kind === 'all' ? 'authors-all' : `kind-${kind}`))}</button>`).join('')}</div>` : ''}
+      </div>
+      <div class="author-items-grid"></div>`;
+
+    const grid = box.querySelector('.author-items-grid');
+    const draw = () => {
+      const items = a.items.filter(i => this.authorItemsKind === 'all' || i.type === this.authorItemsKind);
+      grid.innerHTML = items.map(item => this.renderAuthorItem(item)).join('');
+      grid.querySelectorAll('.author-item-card').forEach(card => {
+        const open = () => this.openAuthorItem(card.dataset.itemType, card.dataset.itemPath);
+        card.addEventListener('click', open);
+        card.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            open();
+          }
+        });
+      });
+    };
+    draw();
+
+    box.querySelector('.author-back').addEventListener('click', () => this.openAuthor(null));
+    box.querySelectorAll('.authors-chip').forEach(chip => chip.addEventListener('click', () => {
+      this.authorItemsKind = chip.dataset.kind;
+      box.querySelectorAll('.authors-chip').forEach(c => c.classList.toggle('active', c === chip));
+      draw();
+    }));
+    const copy = box.querySelector('.author-copy');
+    copy.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(location.href);
+        copy.textContent = this.ui('author-copied');
+        setTimeout(() => { copy.textContent = this.ui('author-copy'); }, 1500);
+      } catch (e) {
+        prompt(this.ui('author-copy'), location.href);
+      }
+    });
+  }
+
+  renderAuthorItem(item) {
+    const name = this.localized(item, 'name') || item.path;
+    const short = this.localized(item, 'short_description') || '';
+    const icon = item.icon ? this.dataUrl(`${item.type}/${item.path}/static/${item.icon}`) : '';
+    const updated = this.formatDate(item.updated);
+    return `
+      <div class="author-item-card" role="button" tabindex="0" data-item-type="${this.escapeHtml(item.type)}"
+          data-item-path="${this.escapeHtml(item.path)}">
+        ${icon ? `<img src="${this.escapeHtml(icon)}" alt="${this.escapeHtml(name)}" class="icon" loading="lazy" data-hide-broken>` : ''}
+        <h3>${this.escapeHtml(name)}</h3>
+        <span class="author-item-type type-${this.escapeHtml(item.type)}">${this.escapeHtml(this.ui(`kind-one-${item.type}`))}</span>
+        <div class="short-desc">${this.escapeHtml(short)}</div>
+        ${updated ? `<div class="card-meta"><span class="card-date">${
+            this.escapeHtml(this.ui('card-updated', {date: updated}))}</span></div>` : ''}
+      </div>`;
+  }
+
+  async openAuthorItem(type, path) {
+    try {
+      const response = await fetch(this.dataUrl(`${type}/${path}/index.json`));
+      if (!response.ok) throw new Error(`Item not found: ${path}`);
+      const manifest = await response.json();
+      this.showModal(manifest, path, type);
+    } catch (err) {
+      console.error('Error opening item from authors:', err);
+    }
   }
 
   async loadPage() {
@@ -1011,18 +1299,20 @@ class LilkaRepository {
       </div>`;
   }
 
-  showModal(manifest, manifestName) {
+  showModal(manifest, manifestName, type = this.currentType) {
     // Remember the currently open manifest so it can be re-rendered when the
-    // language is switched while the modal is open.
+    // language is switched while the modal is open. The kind is passed in from
+    // the Authors page, where the list behind the modal is not of one kind
     this._currentManifest = manifest;
     this._currentManifestName = manifestName;
+    this._currentManifestType = type;
 
     const modalName = this.localized(manifest, 'name');
 
     // Track manifest views
     if (window.umami) {
       window.umami.track('view-manifest', {
-        type: this.currentType,
+        type,
         name: manifest.name,
         manifest: manifestName,
         author: manifest.author
@@ -1033,7 +1323,7 @@ class LilkaRepository {
     const modalBody = document.getElementById('modalBody');
 
     // manifestName already includes the full path relative to type
-    const basePath = this.dataUrl(`${this.currentType}/${manifestName}`);
+    const basePath = this.dataUrl(`${type}/${manifestName}`);
 
     // Store screenshots for lightbox
     this.currentScreenshots =
@@ -1272,31 +1562,13 @@ class LilkaRepository {
     return (author || '').replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase();
   }
 
-  async navigateToAuthor(author) {
-    // Close modal if open
+  navigateToAuthor(author) {
     document.getElementById('modal').style.display = 'none';
-
-    // Load authors page
-    await this.showAuthors();
-
-    // Scroll to the author section & highlight it
-    const sectionId = `author-${this.authorSlug(author)}`;
-    const section = document.getElementById(sectionId);
-    if (section) {
-      // Make sure it's not collapsed
-      section.classList.remove('collapsed');
-      section.scrollIntoView({behavior: 'smooth', block: 'start'});
-      section.classList.add('author-highlight');
-      setTimeout(() => section.classList.remove('author-highlight'), 2000);
-    }
-
-    // Update URL
-    const params = new URLSearchParams();
-    params.set('type', 'authors');
-    params.set('author', author);
-    window.history.pushState(
-        {type: 'authors', author}, '', `?${params.toString()}`);
+    this._currentManifest = null;
+    this._currentManifestName = null;
+    this.openAuthor(author);
   }
+
 }
 
 // Initialize the app when DOM is ready

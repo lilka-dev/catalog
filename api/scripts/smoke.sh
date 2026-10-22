@@ -16,7 +16,8 @@ sha() { printf '%s' "$1" | shasum -a 256 | cut -d' ' -f1; }
 
 npx wrangler d1 execute lilka-catalog --local --command "
 DELETE FROM sessions; DELETE FROM ratings; DELETE FROM reports; UPDATE apps SET latest_version_id = NULL; DELETE FROM versions; DELETE FROM apps; DELETE FROM users WHERE id != 0;
-INSERT INTO users (id, login, role) VALUES (1, 'smoke-dev', 'user'), (2, 'smoke-mod', 'moderator'), (3, 'smoke-fan', 'user');
+INSERT INTO users (id, login, role, bio, blog) VALUES (1, 'smoke-dev', 'user', 'Makes <b>tests</b>', 'https://example.com/');
+INSERT INTO users (id, login, role) VALUES (2, 'smoke-mod', 'moderator'), (3, 'smoke-fan', 'user');
 INSERT INTO sessions VALUES ('$(sha $USER_TOKEN)', 1, datetime('now', '+1 day'));
 INSERT INTO sessions VALUES ('$(sha $MOD_TOKEN)', 2, datetime('now', '+1 day'));
 INSERT INTO sessions VALUES ('$(sha fan-token)', 3, datetime('now', '+1 day'));" >/dev/null
@@ -223,9 +224,16 @@ call 401 "anonymous user list refused" "$API/users/smoke-dev/apps"
 call 401 "catalog without the mirror secret" "$API/catalog/export.json"
 call 401 "catalog with a wrong secret" -H "Authorization: Bearer nope" "$API/catalog/apps/index_0.json"
 call 401 "scanner route with the mirror secret" "${mirror[@]}" "$API/scan/pending"
+# An author line naming someone else gets no profile: the owner's stays theirs
+call 200 "author info: export with a foreign author line" "${mirror[@]}" "$API/catalog/authors_info.json"
+jq -e '.authors | length == 1 and .[0].id == "historic" and .[0].registered == false and .[0].bio == null' "$work/body" >/dev/null && fa=ok || fa=bad
+check "a foreign author line does not borrow the owner's profile" ok "$fa"
+call 200 "moderator clears the author line" "${mod[@]}" "${json[@]}" -X PATCH "$API/apps/smoke-hello" -d '{"author":null}'
 call 200 "export for the mirror job" "${mirror[@]}" "$API/catalog/export.json"
 jq -e '.items["apps/smoke-hello"].version and .documents["apps/smoke-hello/index.json"]' "$work/body" >/dev/null && ex=ok || ex=bad
 check "export lists the app" ok "$ex"
+jq -e '.documents["authors_info.json"] | fromjson | .authors[] | select(.id == "smoke-dev") | .registered and .login == "smoke-dev" and .bio == "Makes <b>tests</b>" and .blog == "https://example.com/" and .counts.apps >= 1' "$work/body" >/dev/null && ai=ok || ai=bad
+check "authors_info.json: one author per login, with the profile" ok "$ai"
 latest=$(npx wrangler d1 execute lilka-catalog --local --json --command "SELECT latest_version_id FROM apps WHERE slug = 'smoke-hello'" 2>/dev/null | jq -r '.[0].results[0].latest_version_id')
 check "latest_version_id is the approved version, not the infected one" "$version_id" "$latest"
 location=$(curl -sS -o /dev/null -w '%{redirect_url}' "$API/auth/login?return=http://localhost:8000/")

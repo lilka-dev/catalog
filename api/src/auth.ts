@@ -57,6 +57,29 @@ interface GithubUser {
     login: string;
     name: string | null;
     avatar_url: string | null;
+    bio?: string | null;
+    blog?: string | null;
+    location?: string | null;
+    company?: string | null;
+}
+
+/** Profile text is shown on the public Authors page: short, single-line, trimmed. */
+function profileText(value: unknown, max: number): string | null {
+    if (typeof value !== 'string') return null;
+    const text = value.replace(/\s+/g, ' ').trim();
+    return text ? text.slice(0, max) : null;
+}
+
+/** GitHub lets "blog" be anything, often without a scheme; only http(s) links are kept. */
+function profileUrl(value: unknown): string | null {
+    const text = profileText(value, 200);
+    if (!text) return null;
+    try {
+        const url = new URL(/^https?:\/\//i.test(text) ? text : `https://${text}`);
+        return url.protocol === 'https:' || url.protocol === 'http:' ? url.toString() : null;
+    } catch {
+        return null;
+    }
 }
 
 export const auth = new Hono<AppEnv>();
@@ -176,13 +199,28 @@ export async function createSession(env: Env, gh: GithubUser): Promise<string> {
             gh.id,
         ),
         env.DB.prepare(
-            `INSERT INTO users (id, login, name, avatar_url, role) VALUES (?1, ?2, ?3, ?4, ?5)
+            `INSERT INTO users (id, login, name, avatar_url, role, bio, blog, location, company)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
              ON CONFLICT (id) DO UPDATE SET
                  login = excluded.login,
                  name = excluded.name,
                  avatar_url = excluded.avatar_url,
+                 bio = excluded.bio,
+                 blog = excluded.blog,
+                 location = excluded.location,
+                 company = excluded.company,
                  role = CASE WHEN users.role = 'banned' THEN 'banned' ELSE excluded.role END`,
-        ).bind(gh.id, gh.login, gh.name, gh.avatar_url, role),
+        ).bind(
+            gh.id,
+            gh.login,
+            profileText(gh.name, 100),
+            gh.avatar_url,
+            role,
+            profileText(gh.bio, 300),
+            profileUrl(gh.blog),
+            profileText(gh.location, 100),
+            profileText(gh.company, 100),
+        ),
         env.DB.prepare(
             `INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, datetime('now', ?))`,
         ).bind(tokenHash, gh.id, `+${SESSION_DAYS} days`),

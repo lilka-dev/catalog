@@ -44,7 +44,7 @@ File names: Latin letters, digits, `.`, `_` and `-`. Up to 8 MB per file and
  catalog.lilka.dev (GitHub Pages)
    site/            the website; reads the mirror below, and the API for
                     sign-in, publishing and moderation
-   apps/ wallpapers/ mods/ authors.json
+   apps/ wallpapers/ mods/ authors.json authors_info.json
                     static mirror of the API's /catalog for Keira devices
 
  lilka-catalog-api (api/, Cloudflare)
