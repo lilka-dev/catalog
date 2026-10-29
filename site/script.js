@@ -1304,12 +1304,13 @@ class LilkaRepository {
       </div>`;
   }
 
-  renderMarkdownSection(title, text) {
+  renderMarkdownSection(title, text, manifest, basePath) {
     if (!text || !text.trim()) return '';
     return `
       <div class="modal-section">
         <h3>${title}</h3>
-        <div class="markdown-content">${this.renderMarkdown(text)}</div>
+        <div class="markdown-content">${
+        this.renderMarkdown(text, manifest, basePath)}</div>
       </div>`;
   }
 
@@ -1361,10 +1362,12 @@ class LilkaRepository {
         ${this.renderScreenshotsSection(manifest, basePath)}
         ${
         this.renderMarkdownSection(
-            '📝 Description', this.localized(manifest, 'description'))}
+            '📝 Description', this.localized(manifest, 'description'),
+            manifest, basePath)}
         ${
         this.renderMarkdownSection(
-            '📋 Changelog', this.localized(manifest, 'changelog'))}
+            '📋 Changelog', this.localized(manifest, 'changelog'),
+            manifest, basePath)}
         ${this.renderFilesSection(manifest, basePath)}
         ${this.renderSecuritySection(manifest)}
         ${this.renderSourcesSection(manifest)}
@@ -1573,8 +1576,34 @@ class LilkaRepository {
 
   // Descriptions and changelogs are written by app authors; marked passes raw
   // HTML through, so its output is sanitized before it reaches the page
-  renderMarkdown(text) {
-    return DOMPurify.sanitize(marked.parse(text));
+  renderMarkdown(text, manifest, basePath) {
+    const html = DOMPurify.sanitize(marked.parse(text));
+    if (!manifest || !basePath) return html;
+    const template = document.createElement('template');
+    template.innerHTML = html;
+    this.resolveImages(template.content, manifest, basePath);
+    return template.innerHTML;
+  }
+
+  // Descriptions are often copied from the author's repository, where an
+  // image like `files/photo.jpg` is relative to the README. On this page it
+  // would point at the site root, so a relative image whose file name is the
+  // item's icon or one of its screenshots is pointed at the item's static/
+  resolveImages(root, manifest, basePath) {
+    const names = new Set([manifest.icon, ...(manifest.screenshots || [])]
+        .filter(name => typeof name === 'string' && name));
+    root.querySelectorAll('img[src]').forEach(img => {
+      const src = img.getAttribute('src');
+      // Absolute, protocol-relative, root-relative and data: URLs stay as is
+      if (/^([a-z][a-z0-9+.-]*:|\/)/i.test(src)) return;
+      let name = src.split(/[?#]/)[0].split('/').pop();
+      try {
+        name = decodeURIComponent(name);
+      } catch (e) {
+        return;
+      }
+      if (names.has(name)) img.setAttribute('src', `${basePath}/static/${name}`);
+    });
   }
 
   authorSlug(author) {
