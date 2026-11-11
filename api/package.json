@@ -13,12 +13,12 @@
   "license": "GPL-2.0-or-later",
   "type": "module",
   "dependencies": {
-    "hono": "^4.13.16"
+    "hono": "^4.13.17"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^5.20261101.1",
+    "@cloudflare/workers-types": "^5.20261108.1",
     "typescript": "^7.0.2",
-    "wrangler": "^4.156.0"
+    "wrangler": "^4.158.0"
   },
   "private": true
 }
