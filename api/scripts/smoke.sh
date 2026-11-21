@@ -58,6 +58,8 @@ call 403 "moderation needs moderator" "${user[@]}" "$API/mod/queue"
 
 call 400 "entry type mismatch" "${user[@]}" -X POST "$API/apps/smoke-hello/versions" \
     -F version=1.0.0 -F keira_version=1.0.0 -F entry_type=binary -F "entry=@$work/hello.lua"
+call 400 "mJS is no longer accepted" "${user[@]}" -X POST "$API/apps/smoke-hello/versions" \
+    -F version=1.0.0 -F keira_version=1.0.0 -F entry_type=js -F "entry=@$work/hello.lua;filename=hello.js"
 call 201 "upload version" "${user[@]}" -X POST "$API/apps/smoke-hello/versions" \
     -F version=1.0.0 -F keira_version=1.0.0 -F entry_type=lua -F changelog='First' \
     -F "entry=@$work/hello.lua" -F "icon=@$work/icon.png" -F "screenshots=@$work/icon.png;filename=shot.png"

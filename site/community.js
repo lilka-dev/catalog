@@ -49,9 +49,9 @@ const COMMUNITY_STRINGS = {
     'entry-lua': 'Lua-скрипт (.lua)',
     'entry-archive': 'Архів (.zip, .tar.gz)',
     'entry-binary': 'Прошивка (.bin)',
-    'entry-js': 'mJS-скрипт (.js)',
     'changelog': 'Що нового',
     'entry-file': 'Файл запуску',
+    'entry-file-hint': 'Файл, який Лілка запускає, коли ви відкриваєте додаток: скрипт .lua, прошивка .bin або архів. Решту файлів додайте в «Додаткові файли».',
     'extra-files': 'Додаткові файли (модулі, ресурси)',
     'icon': 'Іконка (PNG/JPEG)',
     'screenshots': 'Знімки екрана (до 6)',
@@ -225,9 +225,9 @@ const COMMUNITY_STRINGS = {
     'entry-lua': 'Lua script (.lua)',
     'entry-archive': 'Archive (.zip, .tar.gz)',
     'entry-binary': 'Firmware (.bin)',
-    'entry-js': 'mJS script (.js)',
     'changelog': 'What\'s new',
     'entry-file': 'Entry file',
+    'entry-file-hint': 'The file Lilka starts when you open the app: a .lua script, .bin firmware or an archive. Put the rest of the files into Extra files.',
     'extra-files': 'Extra files (modules, resources)',
     'icon': 'Icon (PNG/JPEG)',
     'screenshots': 'Screenshots (up to 6)',
@@ -380,7 +380,6 @@ function formatSize(bytes) {
 function entryTypeOf(name) {
   const lower = name.toLowerCase();
   if (lower.endsWith('.lua')) return 'lua';
-  if (lower.endsWith('.js')) return 'js';
   if (lower.endsWith('.bin')) return 'binary';
   if (/\.(zip|tar|tar\.gz|tgz)$/.test(lower)) return 'archive';
   return null;
@@ -937,12 +936,11 @@ class CommunityUI {
                   <option value="lua">${this.esc(this.t('entry-lua'))}</option>
                   <option value="archive">${this.esc(this.t('entry-archive'))}</option>
                   <option value="binary">${this.esc(this.t('entry-binary'))}</option>
-                  <option value="js">${this.esc(this.t('entry-js'))}</option>
                 </select>`)}</div>
             </div>
             ${field('changelog', 'changelog', '<textarea id="changelog" name="changelog" rows="3"></textarea>')}
             <div class="form-row">
-              <div class="program-only">${field('entry', 'entry-file', '<input id="entry" name="entry" type="file" accept=".lua,.js,.zip,.tar,.gz,.tgz,.bin">')}</div>
+              <div class="program-only">${field('entry', 'entry-file', '<input id="entry" name="entry" type="file" accept=".lua,.zip,.tar,.gz,.tgz,.bin">', 'entry-file-hint')}</div>
               ${picker('files', 'extra-files')}
             </div>
             <div class="form-row">

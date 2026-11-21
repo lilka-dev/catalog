@@ -99,14 +99,15 @@ export const FILENAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 // `bmp280%2Bbme280_lilka.lua`: Keira already caches entries under them
 export const LOOSE_NAME_RE = /^(?!\.\.?$)[^/\\\x00-\x1f]{1,200}$/;
 
+/** Entry types in D1. `js` (mJS) is only on old versions: new ones cannot use it. */
 export type EntryType = 'lua' | 'archive' | 'binary' | 'js';
-export const ENTRY_TYPES: readonly EntryType[] = ['lua', 'archive', 'binary', 'js'];
+/** Entry types a new version may have. */
+export const ENTRY_TYPES: readonly EntryType[] = ['lua', 'archive', 'binary'];
 
-/** Same mapping as `infer_type_from_extension` in the old catalog build.py, plus mJS. */
+/** Same mapping as `infer_type_from_extension` in the old catalog build.py, without mJS. */
 export function entryTypeOf(filename: string): EntryType | null {
     const name = filename.toLowerCase();
     if (name.endsWith('.lua')) return 'lua';
-    if (name.endsWith('.js')) return 'js';
     if (name.endsWith('.bin')) return 'binary';
     if (/\.(zip|tar|tar\.gz|tgz)$/.test(name)) return 'archive';
     return null;

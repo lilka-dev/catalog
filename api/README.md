@@ -182,7 +182,7 @@ All bodies are JSON unless noted. Authenticated calls send
 | GET | `/apps/:slug` | user / owner | Detail with versions; owner also sees drafts and statuses |
 | POST | `/apps` | user | Create draft; `kind`: `app`, `wallpaper` or `mod` |
 | PATCH | `/apps/:slug` | owner, mod | Edit metadata, `status: hidden \| published`; moderators also `author`, `owner` (login) |
-| POST | `/apps/:slug/versions` | owner, mod | Multipart: `version`, `keira_version`, `entry_type` (`lua`, `js`, `binary`, `archive`), `changelog`, files `entry`, `files[]`, `icon`, `screenshots[]`. Mods: no entry, model files as `files[]` |
+| POST | `/apps/:slug/versions` | owner, mod | Multipart: `version`, `keira_version`, `entry_type` (`lua`, `binary`, `archive`; `js` (mJS) is no longer accepted), `changelog`, files `entry`, `files[]`, `icon`, `screenshots[]`. Mods: no entry, model files as `files[]` |
 | PUT | `/apps/:slug/rating` | user (not owner) | `{ "stars": 1..5 }` → `{ my_rating, average, count }`; sending the same stars again writes nothing |
 | DELETE | `/apps/:slug/rating` | user | Removes your rating |
 | POST | `/apps/:slug/reports` | user | `{ "reason": "..." }` |
