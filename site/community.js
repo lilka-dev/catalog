@@ -56,6 +56,10 @@ const COMMUNITY_STRINGS = {
     'icon': 'Іконка (PNG/JPEG)',
     'screenshots': 'Знімки екрана (до 6)',
     'files-hint': 'Імена файлів: латиниця, цифри, крапка, дефіс і підкреслення. До 8 МБ на файл, 24 МБ разом.',
+    'add-files': '+ Додати файли',
+    'drop-files': 'або перетягніть сюди',
+    'picked-count': '{count} з {max}',
+    'remove-file': 'Прибрати {name}',
     'submit': 'Надіслати на перевірку',
     'uploading': 'Завантаження… {percent}%',
     'creating': 'Створення додатка…',
@@ -174,6 +178,8 @@ const COMMUNITY_STRINGS = {
     'err-entry-type': 'Файл «{name}» не відповідає обраному типу запуску.',
     'err-image': '«{name}» має бути PNG або JPEG.',
     'err-shots': 'Не більше 6 знімків екрана.',
+    'err-files': 'Не більше 16 додаткових файлів.',
+    'err-model-files': 'Не більше 16 файлів моделі.',
   },
   en: {
     'tab-share': 'Publish',
@@ -226,6 +232,10 @@ const COMMUNITY_STRINGS = {
     'icon': 'Icon (PNG/JPEG)',
     'screenshots': 'Screenshots (up to 6)',
     'files-hint': 'File names: Latin letters, digits, dot, dash and underscore. Up to 8 MB per file, 24 MB total.',
+    'add-files': '+ Add files',
+    'drop-files': 'or drop them here',
+    'picked-count': '{count} of {max}',
+    'remove-file': 'Remove {name}',
     'submit': 'Send for review',
     'uploading': 'Uploading… {percent}%',
     'creating': 'Creating the app…',
@@ -341,6 +351,8 @@ const COMMUNITY_STRINGS = {
     'err-entry-type': 'File "{name}" does not match the chosen entry type.',
     'err-image': '"{name}" must be a PNG or JPEG.',
     'err-shots': 'At most 6 screenshots.',
+    'err-files': 'At most 16 extra files.',
+    'err-model-files': 'At most 16 model files.',
   },
 };
 
@@ -354,10 +366,16 @@ const SLUG_RE = /^[a-z0-9][a-z0-9-]{1,47}$/;
 const MAX_FILE_BYTES = 8 * 1024 * 1024;
 const MAX_UPLOAD_BYTES = 24 * 1024 * 1024;
 const MAX_SCREENSHOTS = 6;
+const MAX_EXTRA_FILES = 16;
 const TOKEN_KEY = 'lilka-token';
 const LOGIN_STARTED_KEY = 'lilka-login-started';
 // GitHub's consent page plus a slow network; the API's OAuth state lives 10 minutes
 const LOGIN_WINDOW_MS = 10 * 60 * 1000;
+
+function formatSize(bytes) {
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
 
 function entryTypeOf(name) {
   const lower = name.toLowerCase();
@@ -855,6 +873,20 @@ class CommunityUI {
         ${input}
         ${hint ? `<span class="community-hint">${this.esc(this.t(hint))}</span>` : ''}
       </label>`;
+    // A list that grows with every pick or drop, see bindFilePicker
+    const picker = (id, label, accept = '') => `
+      <div class="form-field file-picker" data-picker="${id}">
+        <span class="form-label" id="${id}Label">${this.esc(this.t(label))}</span>
+        <ul class="file-picks" hidden></ul>
+        <div class="file-picker-bar">
+          <label class="file-add">
+            <input id="${id}" type="file" multiple${accept ? ` accept="${accept}"` : ''} aria-labelledby="${id}Label">
+            <span>${this.esc(this.t('add-files'))}</span>
+          </label>
+          <span class="community-hint file-drop-hint">${this.esc(this.t('drop-files'))}</span>
+          <span class="community-hint file-picker-count"></span>
+        </div>
+      </div>`;
 
     box.innerHTML = `
       <div class="community-panel">
@@ -911,14 +943,11 @@ class CommunityUI {
             ${field('changelog', 'changelog', '<textarea id="changelog" name="changelog" rows="3"></textarea>')}
             <div class="form-row">
               <div class="program-only">${field('entry', 'entry-file', '<input id="entry" name="entry" type="file" accept=".lua,.js,.zip,.tar,.gz,.tgz,.bin">')}</div>
-              <label class="form-field" for="files">
-                <span class="form-label" id="filesLabel">${this.esc(this.t('extra-files'))}</span>
-                <input id="files" name="files" type="file" multiple>
-              </label>
+              ${picker('files', 'extra-files')}
             </div>
             <div class="form-row">
               ${field('icon', 'icon', '<input id="icon" name="icon" type="file" accept="image/png,image/jpeg">')}
-              ${field('screenshots', 'screenshots', '<input id="screenshots" name="screenshots" type="file" accept="image/png,image/jpeg" multiple>')}
+              ${picker('screenshots', 'screenshots', 'image/png,image/jpeg')}
             </div>
             <p class="community-hint">${this.esc(this.t('files-hint'))}</p>
           </fieldset>
@@ -972,10 +1001,75 @@ class CommunityUI {
       if (type) form.querySelector('#entry_type').value = type;
     });
 
+    form.picked = {
+      files: this.bindFilePicker(form, 'files', MAX_EXTRA_FILES),
+      screenshots: this.bindFilePicker(form, 'screenshots', MAX_SCREENSHOTS),
+    };
+
     form.addEventListener('submit', (e) => {
       e.preventDefault();
       this.submitShare(form);
     });
+  }
+
+  // A file input forgets its earlier files on every new pick, so the list is
+  // kept here instead: each pick or drop adds to it, a file picked again
+  // under the same name replaces the old one, and ✕ takes one out. Returns
+  // the live array that validateFiles and submitShare read.
+  bindFilePicker(form, id, max) {
+    const box = form.querySelector(`[data-picker="${id}"]`);
+    const input = box.querySelector('input');
+    const list = box.querySelector('.file-picks');
+    const count = box.querySelector('.file-picker-count');
+    const picked = [];
+
+    const render = () => {
+      list.hidden = !picked.length;
+      list.innerHTML = picked.map((file, i) => `
+        <li>
+          <span class="file-pick-name" title="${this.esc(file.name)}">${this.esc(file.name)}</span>
+          <span class="file-pick-size">${formatSize(file.size)}</span>
+          <button type="button" class="file-pick-remove" data-remove="${i}"
+                  aria-label="${this.esc(this.t('remove-file', {name: file.name}))}">✕</button>
+        </li>`).join('');
+      count.textContent = picked.length ? this.t('picked-count', {count: picked.length, max}) : '';
+      count.classList.toggle('over', picked.length > max);
+    };
+    const add = (files) => {
+      // The API drops empty parts, and a dropped folder arrives as one
+      for (const file of [...files].filter(f => f.size > 0)) {
+        const same = picked.findIndex(f => f.name === file.name);
+        if (same >= 0) picked[same] = file;
+        else picked.push(file);
+      }
+      render();
+    };
+
+    input.addEventListener('change', () => {
+      add(input.files);
+      // Lets the same file be picked again after it was removed
+      input.value = '';
+    });
+    list.addEventListener('click', (e) => {
+      const button = e.target.closest('[data-remove]');
+      if (!button) return;
+      picked.splice(Number(button.dataset.remove), 1);
+      render();
+      input.focus();
+    });
+    box.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      box.classList.add('dragging');
+    });
+    box.addEventListener('dragleave', (e) => {
+      if (!box.contains(e.relatedTarget)) box.classList.remove('dragging');
+    });
+    box.addEventListener('drop', (e) => {
+      e.preventDefault();
+      box.classList.remove('dragging');
+      add(e.dataTransfer.files);
+    });
+    return picked;
   }
 
   targetOption(slug, name, kind, selected) {
@@ -985,9 +1079,9 @@ class CommunityUI {
 
   validateFiles(form) {
     const entry = form.querySelector('#entry').files[0];
-    const extra = [...form.querySelector('#files').files];
+    const extra = form.picked.files;
     const icon = [...form.querySelector('#icon').files];
-    const shots = [...form.querySelector('#screenshots').files];
+    const shots = form.picked.screenshots;
     const entryType = form.querySelector('#entry_type').value;
     const isMod = form.dataset.kind === 'mod';
 
@@ -995,6 +1089,7 @@ class CommunityUI {
       if (!entry) return this.t('err-entry');
       if (entryTypeOf(entry.name) !== entryType) return this.t('err-entry-type', {name: entry.name});
     }
+    if (extra.length > MAX_EXTRA_FILES) return this.t(isMod ? 'err-model-files' : 'err-files');
     if (shots.length > MAX_SCREENSHOTS) return this.t('err-shots');
 
     // The same picture may be both the icon and a screenshot
@@ -1068,9 +1163,9 @@ class CommunityUI {
                           ['version', 'keira_version', 'entry_type', 'changelog'];
       for (const id of ids) data.append(id, value(id));
       if (!isMod) data.append('entry', form.querySelector('#entry').files[0]);
-      for (const id of ['files', 'icon', 'screenshots']) {
-        for (const file of form.querySelector(`#${id}`).files) data.append(id, file);
-      }
+      for (const file of form.picked.files) data.append('files', file);
+      for (const file of form.querySelector('#icon').files) data.append('icon', file);
+      for (const file of form.picked.screenshots) data.append('screenshots', file);
 
       const version = await this.upload(
           `/apps/${encodeURIComponent(slug)}/versions`, data,

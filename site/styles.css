@@ -1893,6 +1893,127 @@ footer {
     box-shadow: 0 0 0 3px var(--primary-glow);
 }
 
+/* Extra files and screenshots: a list that grows with every pick or drop */
+.file-picker {
+    border-radius: var(--radius-xs);
+}
+
+.file-picker.dragging {
+    outline: 2px dashed var(--primary-color);
+    outline-offset: 4px;
+}
+
+.file-picks {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+}
+
+.file-picks li {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    background: var(--background);
+    border: 1px solid var(--border-solid);
+    border-radius: var(--radius-xs);
+    padding: 0.25rem 0.25rem 0.25rem 0.65rem;
+}
+
+.file-pick-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.file-pick-size {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    white-space: nowrap;
+}
+
+.file-pick-remove {
+    border: none;
+    background: none;
+    font: inherit;
+    line-height: 1;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 0.3rem 0.45rem;
+    border-radius: var(--radius-xs);
+}
+
+.file-pick-remove:hover,
+.file-pick-remove:focus-visible {
+    color: var(--error);
+    background: var(--surface-hover);
+    outline: none;
+}
+
+.file-picker-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+}
+
+.file-add {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    padding: 0.45rem 0.8rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--primary-color);
+    background: var(--background);
+    border: 1px dashed var(--border-solid);
+    border-radius: var(--radius-xs);
+    cursor: pointer;
+}
+
+.file-add:hover,
+.file-add:focus-within,
+.file-picker.dragging .file-add {
+    border-color: var(--primary-color);
+    background: var(--primary-glow);
+}
+
+.file-add:focus-within {
+    box-shadow: 0 0 0 3px var(--primary-glow);
+}
+
+/* Still focusable, so the keyboard opens the picker; the label is the button */
+.form-field .file-add input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    border: 0;
+    opacity: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+}
+
+.file-picker-count {
+    margin-left: auto;
+}
+
+.file-picker-count.over {
+    color: var(--error);
+    font-weight: 600;
+}
+
+@media (hover: none) {
+    .file-drop-hint {
+        display: none;
+    }
+}
+
 .form-error {
     color: var(--error);
     background: rgba(215, 0, 21, 0.1);

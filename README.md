@@ -25,7 +25,8 @@ scripts/mirror_api.py  copies the catalog from the API to Pages for Lilka device
 2. Go to **Publish**, fill in the name and descriptions (Ukrainian and/or
    English), the link to the source code and the files:
    - **apps and wallpapers**: the entry file (`.lua`, `.js`, `.bin` firmware or
-     an archive), optional extra files, the minimum Keira version;
+     an archive), optional extra files (up to 16, added one by one or all at
+     once), the minimum Keira version;
    - **mods** (cases, printable parts): model files instead of an entry file;
    - an icon and up to 6 screenshots.
 3. Every file is scanned with ClamAV. Then a moderator reviews the version.
