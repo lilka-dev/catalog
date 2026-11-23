@@ -85,6 +85,47 @@ export async function safeEqual(a: string, b: string): Promise<boolean> {
 
 export const SLUG_RE = /^[a-z0-9][a-z0-9-]{1,47}$/;
 export const VERSION_RE = /^[0-9A-Za-z][0-9A-Za-z.+-]{0,31}$/;
+
+/**
+ * Orders version numbers the way people read them: 1.10 > 1.9 > 1.9-beta.
+ * Dotted numbers with an optional `v` and `-prerelease`; `+build` is ignored
+ * and missing parts count as 0 (1.0 = 1.0.0). Null when either side is not of
+ * that form (VERSION_RE allows any short name), so callers can fall back.
+ */
+export function compareVersions(a: string, b: string): number | null {
+    const parse = (value: string) => {
+        const m = /^v?(\d+(?:\.\d+)*)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/i.exec(value);
+        return m ? { numbers: m[1].split('.').map(Number), pre: m[2] ? m[2].split('.') : null } : null;
+    };
+    const x = parse(a);
+    const y = parse(b);
+    if (!x || !y) return null;
+    for (let i = 0; i < Math.max(x.numbers.length, y.numbers.length); i++) {
+        const diff = (x.numbers[i] ?? 0) - (y.numbers[i] ?? 0);
+        if (diff) return Math.sign(diff);
+    }
+    // A release is higher than its pre-releases: 1.0.0 > 1.0.0-rc.1
+    if (!x.pre || !y.pre) return !x.pre && !y.pre ? 0 : x.pre ? -1 : 1;
+    for (let i = 0; i < Math.max(x.pre.length, y.pre.length); i++) {
+        const p = x.pre[i];
+        const q = y.pre[i];
+        if (p === undefined) return -1;
+        if (q === undefined) return 1;
+        const pNum = /^\d+$/.test(p);
+        const qNum = /^\d+$/.test(q);
+        if (pNum && qNum) {
+            const diff = Number(p) - Number(q);
+            if (diff) return Math.sign(diff);
+        } else if (pNum !== qNum) {
+            // Numeric identifiers sort before words, as in SemVer
+            return pNum ? -1 : 1;
+        } else if (p !== q) {
+            return p < q ? -1 : 1;
+        }
+    }
+    return 0;
+}
+
 // The catalog build flattens every file into one folder by its basename, so
 // names must be plain and unique within a version.
 export const FILENAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;

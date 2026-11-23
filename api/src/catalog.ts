@@ -1,7 +1,7 @@
 import { Hono, type Context } from 'hono';
 import type { AppEnv, Env } from './env';
 import { displayAuthor, kindDir, ratingSummary, type AppRow } from './apps';
-import { contentTypeOf, fail, parseJsonArray, sha256Hex } from './util';
+import { compareVersions, contentTypeOf, fail, parseJsonArray, sha256Hex } from './util';
 import { objectKey } from './versions';
 
 /**
@@ -13,6 +13,7 @@ import { objectKey } from './versions';
  *   /catalog/<dir>/<id>/static/<file>
  *   /catalog/authors.json
  *   /catalog/authors_info.json   (website only, see authorsInfoDoc)
+ *   /catalog/<dir>/listing.json, <dir>/<id>/versions.json   (website only)
  *
  * Keira's lilcatalog requests these paths under CATALOG_BASE_URL, and the
  * Pages mirror is a plain copy of this tree, so every field name and its order
@@ -28,6 +29,7 @@ const DIRS: Record<string, AppRow['kind']> = { apps: 'app', wallpapers: 'wallpap
 
 interface CatalogRow extends AppRow {
     v_id: number;
+    version: string;
     published_at: string | null;
     approved_at: string | null;
     keira_version: string | null;
@@ -67,7 +69,7 @@ async function published(env: Env, kind?: AppRow['kind'], slug?: string): Promis
     const { results } = await env.DB.prepare(
         `SELECT a.*, u.login AS owner_login, u.avatar_url AS owner_avatar, u.name AS owner_name,
                 u.bio AS owner_bio, u.blog AS owner_blog, u.location AS owner_location, u.company AS owner_company,
-                v.id AS v_id, v.keira_version, v.entry_type, v.entry_file, v.files, v.files_meta, v.icon, v.icon_min,
+                v.id AS v_id, v.version, v.keira_version, v.entry_type, v.entry_file, v.files, v.files_meta, v.icon, v.icon_min,
                 v.screenshots, v.changelog, v.changelog_en, v.package, v.security, v.storage_prefix,
                 v.approved_at, COALESCE(r.n, 0) AS rating_count, r.total AS rating_sum
            FROM apps a
@@ -370,12 +372,60 @@ function listingDoc(rows: CatalogRow[]) {
                 added: row.published_at ?? row.approved_at,
                 updated: row.approved_at,
                 rating: ratingSummary(row.rating_count, row.rating_sum),
+                // Not in index.json: Keira parses that one, the site reads these here
+                version: row.version,
+                keira_version: row.keira_version,
+                entry_type: row.entry_type,
+                license: row.license,
             };
             if (Object.keys(loc).length) {
                 entry.languages = Object.keys(loc);
                 entry.localization = onlyFields(loc, ['name', 'short_description']);
             }
             return entry;
+        }),
+    };
+}
+
+interface HistoryRow {
+    app_id: number;
+    version: string;
+    keira_version: string | null;
+    approved_at: string | null;
+    changelog: string | null;
+    changelog_en: string | null;
+}
+
+/** Approved versions per app, for versions.json; one query for the whole export. */
+async function approvedVersions(env: Env, appId?: number): Promise<Map<number, HistoryRow[]>> {
+    const { results } = await env.DB.prepare(
+        `SELECT app_id, version, keira_version, approved_at, changelog, changelog_en
+           FROM versions WHERE status = 'approved' ${appId === undefined ? '' : 'AND app_id = ?'}`,
+    )
+        .bind(...(appId === undefined ? [] : [appId]))
+        .all<HistoryRow>();
+    const byApp = new Map<number, HistoryRow[]>();
+    for (const row of results) byApp.set(row.app_id, [...(byApp.get(row.app_id) ?? []), row]);
+    return byApp;
+}
+
+/**
+ * versions.json: every approved version of one item, highest first, with its
+ * changelog. Website only, like listing.json: old versions' files are not in
+ * the catalog, so this is the history and nothing to download.
+ */
+function versionsDoc(row: CatalogRow, history: HistoryRow[]) {
+    const sorted = [...history].sort(
+        (a, b) =>
+            compareVersions(b.version, a.version) ?? String(b.approved_at ?? '').localeCompare(String(a.approved_at ?? '')),
+    );
+    return {
+        latest: row.version,
+        versions: sorted.map((v) => {
+            const localization: Record<string, { changelog: string }> = {};
+            if (v.changelog) localization.uk = { changelog: v.changelog };
+            if (v.changelog_en) localization.en = { changelog: v.changelog_en };
+            return { version: v.version, keira_version: v.keira_version, approved_at: v.approved_at, localization };
         }),
     };
 }
@@ -415,6 +465,7 @@ catalog.get('/:dir/:page{index_[0-9]+\\.json}', async (c) => {
  */
 catalog.get('/export.json', async (c) => {
     const rows = await published(c.env);
+    const history = await approvedVersions(c.env);
     const documents: Record<string, string> = {
         'authors.json': text(authorsDoc(rows)),
         'authors_info.json': text(authorsInfoDoc(rows)),
@@ -427,6 +478,7 @@ catalog.get('/export.json', async (c) => {
         for (const row of ofKind) {
             const base = `${dir}/${row.slug}`;
             documents[`${base}/index.json`] = text(fullDoc(row));
+            documents[`${base}/versions.json`] = text(versionsDoc(row, history.get(row.id) ?? []));
             if (row.kind !== 'mod') documents[`${base}/index_short.json`] = text(shortDoc(row));
             const names = new Set(
                 [row.entry_file, row.icon, row.icon_min, ...parseJsonArray<string>(row.files), ...parseJsonArray<string>(row.screenshots)].filter(
@@ -452,6 +504,11 @@ async function one(c: Context<AppEnv>): Promise<CatalogRow> {
 }
 
 catalog.get('/:dir/:id/index.json', async (c) => json(c, fullDoc(await one(c))));
+
+catalog.get('/:dir/:id/versions.json', async (c) => {
+    const row = await one(c);
+    return json(c, versionsDoc(row, (await approvedVersions(c.env, row.id)).get(row.id) ?? []));
+});
 
 catalog.get('/:dir/:id/index_short.json', async (c) => {
     const row = await one(c);

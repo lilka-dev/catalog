@@ -540,6 +540,117 @@ main {
     font-weight: 500;
 }
 
+/* Title with the star and "Copy link"; room on the right for the × */
+.modal-title-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 0.5rem 1rem;
+    padding-right: 2.75rem;
+}
+
+.modal-title-row h2 {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.modal-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-shrink: 0;
+}
+
+.modal-actions .share-link {
+    height: 36px;
+    white-space: nowrap;
+}
+
+/* Version, type, Keira version, license, date (listing.json) */
+.modal-facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-top: 0.75rem;
+    padding: 0;
+    list-style: none;
+}
+
+.modal-facts[hidden] {
+    display: none;
+}
+
+.modal-facts li {
+    padding: 0.25rem 0.6rem;
+    border: 1px solid var(--border-solid);
+    border-radius: 999px;
+    background: var(--surface-light);
+    font-size: 0.8rem;
+    color: var(--text-primary);
+}
+
+.modal-facts .fact-label {
+    color: var(--text-muted);
+}
+
+.modal-facts .fact-value {
+    font-weight: 600;
+}
+
+/* Version history (versions.json), folded by default */
+.modal-section[hidden] {
+    display: none;
+}
+
+.version-history summary {
+    cursor: pointer;
+    list-style-position: outside;
+}
+
+.version-history summary h3 {
+    display: inline;
+    margin: 0;
+}
+
+.version-list {
+    margin: 1rem 0 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.version-item {
+    padding: 0.75rem 1rem;
+    border-left: 3px solid var(--border-solid);
+    background: var(--surface-light);
+    border-radius: 0 var(--radius-xs) var(--radius-xs) 0;
+}
+
+.version-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.35rem 0.75rem;
+    margin-bottom: 0.35rem;
+}
+
+.version-current {
+    padding: 0.05rem 0.5rem;
+    border-radius: 999px;
+    background: var(--primary-glow);
+    color: var(--primary-color);
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.version-meta {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+}
+
 .modal-icon {
     width: 100%;
     max-height: 300px;
@@ -1893,6 +2004,38 @@ footer {
     box-shadow: 0 0 0 3px var(--primary-glow);
 }
 
+/* Publish → new version: what the approved version passes on (keep_*) */
+.keep-box {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    border: 1px dashed var(--border-solid);
+    border-radius: var(--radius-xs);
+    background: var(--surface-light);
+}
+
+.keep-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.5rem;
+}
+
+.keep-option {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-size: 0.9rem;
+    color: var(--text-primary);
+    cursor: pointer;
+}
+
+.keep-option input {
+    width: 1rem;
+    height: 1rem;
+    accent-color: var(--primary-color);
+}
+
 /* Extra files and screenshots: a list that grows with every pick or drop */
 .file-picker {
     border-radius: var(--radius-xs);
@@ -2204,6 +2347,144 @@ footer {
 .status-infected { color: var(--error); }
 
 /* Sorting (script.js listing): shares a row with the top pagination */
+/* Search, type filter and favorites above the list (script.js filterItems) */
+.list-filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 2rem;
+}
+
+.list-filters[hidden],
+.list-filter[hidden] {
+    display: none;
+}
+
+.list-search,
+.list-filter,
+.list-fav-toggle {
+    height: 40px;
+    font: inherit;
+    font-size: 0.9rem;
+    color: var(--text-primary);
+    background: var(--surface);
+    border: 1px solid var(--border-solid);
+    border-radius: var(--radius-xs);
+    transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.list-search {
+    flex: 1 1 18rem;
+    min-width: 0;
+    padding: 0 0.85rem;
+}
+
+.list-filter {
+    padding: 0 0.6rem;
+    cursor: pointer;
+}
+
+.list-fav-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0 0.85rem;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.list-fav-toggle > span:first-child {
+    color: var(--star);
+}
+
+.list-fav-toggle[aria-pressed="true"] {
+    border-color: var(--star);
+    background: rgba(242, 184, 0, 0.12);
+    font-weight: 600;
+}
+
+.list-fav-toggle .fav-count:not(:empty) {
+    min-width: 1.4em;
+    padding: 0 0.35em;
+    border-radius: 999px;
+    background: var(--surface-light);
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    line-height: 1.4;
+    text-align: center;
+}
+
+.list-search:hover,
+.list-filter:hover,
+.list-fav-toggle:hover {
+    border-color: var(--primary-color);
+}
+
+.list-search:focus,
+.list-filter:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px var(--primary-glow);
+}
+
+.list-fav-toggle:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 1px;
+}
+
+.list-filters + .list-head {
+    margin-top: 1rem;
+}
+
+/* Nothing matches the search or filters */
+.list-empty {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 3rem 1rem;
+    color: var(--text-secondary);
+    text-align: center;
+}
+
+/* The star on a card (top right, over the icon) and in the item window */
+.fav-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border: 1px solid var(--border-solid);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--star);
+    font-size: 1.15rem;
+    line-height: 1;
+    cursor: pointer;
+    transition: transform var(--transition), border-color var(--transition);
+}
+
+.fav-btn:hover {
+    border-color: var(--star);
+    transform: scale(1.08);
+}
+
+.fav-btn:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+}
+
+.fav-btn.fav-card {
+    position: absolute;
+    top: 0.75rem;
+    right: 0.75rem;
+    z-index: 1;
+    box-shadow: var(--shadow);
+}
+
 .list-head {
     display: flex;
     justify-content: space-between;

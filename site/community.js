@@ -56,6 +56,12 @@ const COMMUNITY_STRINGS = {
     'icon': 'Іконка (PNG/JPEG)',
     'screenshots': 'Знімки екрана (до 6)',
     'files-hint': 'Імена файлів: латиниця, цифри, крапка, дефіс і підкреслення. До 8 МБ на файл, 24 МБ разом.',
+    'keep-title': 'Залишити з версії {version}',
+    'keep-hint': 'Ці файли копіюються з затвердженої версії, додавати їх знову не треба. Новий файл з тією ж назвою замінює старий.',
+    'keep-icon': 'Іконку ({name})',
+    'keep-screenshots': 'Знімки екрана ({count}); нові додаються до них',
+    'keep-files': 'Додаткові файли ({count})',
+    'keep-model-files': 'Файли моделі ({count})',
     'add-files': '+ Додати файли',
     'drop-files': 'або перетягніть сюди',
     'picked-count': '{count} з {max}',
@@ -264,6 +270,12 @@ const COMMUNITY_STRINGS = {
     'icon': 'Icon (PNG/JPEG)',
     'screenshots': 'Screenshots (up to 6)',
     'files-hint': 'File names: Latin letters, digits, dot, dash and underscore. Up to 8 MB per file, 24 MB total.',
+    'keep-title': 'Keep from version {version}',
+    'keep-hint': 'These are copied from the approved version, no need to attach them again. A new file with the same name replaces the old one.',
+    'keep-icon': 'Icon ({name})',
+    'keep-screenshots': 'Screenshots ({count}); new ones are added to them',
+    'keep-files': 'Extra files ({count})',
+    'keep-model-files': 'Model files ({count})',
     'add-files': '+ Add files',
     'drop-files': 'or drop them here',
     'picked-count': '{count} of {max}',
@@ -1069,6 +1081,17 @@ class CommunityUI {
                 </select>`)}</div>
             </div>
             ${field('changelog', 'changelog', '<textarea id="changelog" name="changelog" rows="3"></textarea>')}
+            <div class="keep-box" id="keepBox" hidden>
+              <span class="form-label" id="keepTitle"></span>
+              <div class="keep-options">
+                ${['icon', 'screenshots', 'files'].map(part => `
+                  <label class="keep-option" data-keep="${part}">
+                    <input type="checkbox" id="keep_${part}">
+                    <span></span>
+                  </label>`).join('')}
+              </div>
+              <span class="community-hint">${this.esc(this.t('keep-hint'))}</span>
+            </div>
             <div class="form-row">
               <div class="program-only">${field('entry', 'entry-file', '<input id="entry" name="entry" type="file" accept=".lua,.zip,.tar,.gz,.tgz,.bin">', 'entry-file-hint')}</div>
               ${picker('files', 'extra-files')}
@@ -1105,8 +1128,13 @@ class CommunityUI {
       const isMod = kind === 'mod';
       form.querySelectorAll('.program-only').forEach(el => el.hidden = isMod);
       form.querySelector('#filesLabel').textContent = this.t(isMod ? 'model-files' : 'extra-files');
+      this.syncKeep(form, existing);
+      this.suggestVersion(form, existing);
     };
     target.addEventListener('change', syncTarget);
+    form.querySelector('#version').addEventListener('input', () => {
+      form.dataset.versionTouched = '1';
+    });
     syncTarget();
 
     // Suggest an identifier from the name until the user types their own
@@ -1200,6 +1228,73 @@ class CommunityUI {
     return picked;
   }
 
+  // "Keep from version X": what the approved version has that the new one can
+  // reuse (keep_* on the upload). Icon and screenshots are on by default,
+  // extra files off: they usually change together with the code
+  syncKeep(form, existing) {
+    const previous = (existing && existing.latest_version) || null;
+    form.previous = previous;
+    const box = form.querySelector('#keepBox');
+    if (!previous) {
+      box.hidden = true;
+      return;
+    }
+    const isMod = form.dataset.kind === 'mod';
+    const parts = {
+      icon: previous.icon ? this.t('keep-icon', {name: previous.icon.name}) : '',
+      screenshots: previous.screenshots.length ?
+          this.t('keep-screenshots', {count: previous.screenshots.length}) : '',
+      files: previous.files.length ?
+          this.t(isMod ? 'keep-model-files' : 'keep-files', {count: previous.files.length}) : '',
+    };
+    for (const [part, text] of Object.entries(parts)) {
+      const row = box.querySelector(`[data-keep="${part}"]`);
+      row.hidden = !text;
+      row.querySelector('span').textContent = text;
+      row.querySelector('input').checked = !!text && part !== 'files';
+    }
+    form.querySelector('#keepTitle').textContent = this.t('keep-title', {version: previous.version});
+    box.hidden = !Object.values(parts).some(Boolean);
+  }
+
+  // What keep_* will carry over, minus files picked again under the same name
+  // (the API stores the new one then)
+  keptFiles(form) {
+    const previous = form.previous;
+    const box = form.querySelector('#keepBox');
+    const on = (part) => {
+      const row = box.querySelector(`[data-keep="${part}"]`);
+      return !!previous && !box.hidden && !row.hidden && row.querySelector('input').checked;
+    };
+    const entry = [...form.querySelector('#entry').files];
+    const notPicked = (list) => (name) => !list.some(f => f.name === name);
+    return {
+      icon: on('icon') ? previous.icon.name : null,
+      screenshots: on('screenshots') ?
+          previous.screenshots.map(s => s.name).filter(notPicked(form.picked.screenshots)) : [],
+      files: on('files') ?
+          previous.files.map(f => f.name).filter(notPicked([...form.picked.files, ...entry])) : [],
+    };
+  }
+
+  // A new version has to be higher than the earlier ones, so the form offers
+  // the next one after the latest upload (1.2.3 → 1.2.4) and the Keira
+  // version and entry type it had, until the author types their own
+  suggestVersion(form, existing) {
+    const last = existing && (existing.versions || [])
+        .find(v => v.status !== 'rejected' && v.status !== 'infected');
+    if (!last) {
+      if (!form.dataset.versionTouched) form.querySelector('#version').value = '1.0.0';
+      return;
+    }
+    if (!form.dataset.versionTouched) {
+      const m = /^(v?(?:\d+\.)*)(\d+)$/.exec(last.version);
+      if (m) form.querySelector('#version').value = `${m[1]}${Number(m[2]) + 1}`;
+    }
+    if (last.keira_version) form.querySelector('#keira_version').value = last.keira_version;
+    if (last.entry_type && last.entry_type !== 'js') form.querySelector('#entry_type').value = last.entry_type;
+  }
+
   targetOption(slug, name, kind, selected) {
     return `<option value="${this.esc(slug)}"${selected ? ' selected' : ''}>${
         this.esc(this.t('target-existing', {name, kind: this.t(`kind-${kind}`)}))}</option>`;
@@ -1217,8 +1312,10 @@ class CommunityUI {
       if (!entry) return this.t('err-entry');
       if (entryTypeOf(entry.name) !== entryType) return this.t('err-entry-type', {name: entry.name});
     }
-    if (extra.length > MAX_EXTRA_FILES) return this.t(isMod ? 'err-model-files' : 'err-files');
-    if (shots.length > MAX_SCREENSHOTS) return this.t('err-shots');
+    // Kept files count toward the limits as the API counts them
+    const kept = this.keptFiles(form);
+    if (extra.length + kept.files.length > MAX_EXTRA_FILES) return this.t(isMod ? 'err-model-files' : 'err-files');
+    if (shots.length + kept.screenshots.length > MAX_SCREENSHOTS) return this.t('err-shots');
 
     // The same picture may be both the icon and a screenshot
     const seen = new Map();
@@ -1294,6 +1391,10 @@ class CommunityUI {
       for (const file of form.picked.files) data.append('files', file);
       for (const file of form.querySelector('#icon').files) data.append('icon', file);
       for (const file of form.picked.screenshots) data.append('screenshots', file);
+      const kept = this.keptFiles(form);
+      if (kept.icon) data.append('keep_icon', '1');
+      if (kept.screenshots.length) data.append('keep_screenshots', '1');
+      if (kept.files.length) data.append('keep_files', '1');
 
       const version = await this.upload(
           `/apps/${encodeURIComponent(slug)}/versions`, data,

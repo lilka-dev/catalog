@@ -15,6 +15,8 @@
     <!-- lilka-catalog-api base URL; empty keeps sign-in and publishing hidden -->
     <meta name="lilka-api" content="https://lilka-catalog-api.black-ghost-ukraine.workers.dev">
     <link rel="icon" href="favicon.svg" type="image/svg+xml">
+    <!-- feed.xml is written by scripts/mirror_api.py -->
+    <link rel="alternate" type="application/atom+xml" title="Lilka Apps &amp; Mods" href="feed.xml">
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -52,6 +54,24 @@
         <div id="error" class="error" style="display: none;"></div>
         
         <div id="content">
+            <!-- Search and filters run on listing.json in the page: no requests -->
+            <div class="list-filters" id="listFilters">
+                <input type="search" id="searchInput" class="list-search" autocomplete="off" enterkeyhint="search"
+                       data-i18n-placeholder="search-placeholder" data-i18n-aria-label="search-label"
+                       placeholder="Search by name, description or author" aria-label="Search">
+                <select id="typeFilter" class="list-filter" data-i18n-aria-label="filter-type" aria-label="Type" hidden>
+                    <option value="" data-i18n="filter-all-types">All types</option>
+                    <option value="lua" data-i18n="filter-lua">Lua</option>
+                    <option value="binary" data-i18n="filter-binary">Firmware (.bin)</option>
+                    <option value="archive" data-i18n="filter-archive">Archive</option>
+                </select>
+                <button type="button" id="favoritesOnly" class="list-fav-toggle" aria-pressed="false">
+                    <span aria-hidden="true">★</span>
+                    <span data-i18n="filter-favorites">Favorites</span>
+                    <span id="favoritesCount" class="fav-count"></span>
+                </button>
+            </div>
+
             <!-- Pagination in the middle, sorting on the right -->
             <div class="list-head">
                 <div class="pagination">
@@ -109,6 +129,7 @@
                 <a href="https://discord.gg/HU68TaKCu6" target="_blank" rel="noopener noreferrer" data-umami-event="footer-link-discord">💬 Discord</a>
                 <a href="https://docs.lilka.dev" target="_blank" rel="noopener noreferrer" data-umami-event="footer-link-docs">📚 Documentation</a>
                 <a href="https://github.com/lilka-dev/catalog" target="_blank" rel="noopener noreferrer" data-umami-event="footer-link-github">🐙 GitHub</a>
+                <a href="feed.xml" data-umami-event="footer-link-feed" title="Atom / RSS">📰 RSS</a>
             </div>
             <p class="footer-copyright">© 2026 Lilka Project</p>
         </div>

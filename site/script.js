@@ -21,6 +21,27 @@ const UI_STRINGS = {
     'sort-reverse': 'Зворотний порядок',
     'card-added': 'Додано {date}',
     'card-updated': 'Оновлено {date}',
+    'search-label': 'Пошук',
+    'search-placeholder': 'Пошук за назвою, описом або автором',
+    'filter-type': 'Тип',
+    'filter-all-types': 'Усі типи',
+    'filter-lua': 'Lua',
+    'filter-binary': 'Прошивка (.bin)',
+    'filter-archive': 'Архів',
+    'filter-favorites': 'Обране',
+    'fav-add': 'Додати в обране',
+    'fav-remove': 'Прибрати з обраного',
+    'list-empty': 'Нічого не знайдено.',
+    'list-empty-favorites': 'Тут поки порожньо: натисніть ☆ на картці, щоб додати її в обране.',
+    'list-clear': 'Скинути пошук і фільтри',
+    'fact-version': 'Версія',
+    'fact-type': 'Тип',
+    'fact-keira': 'Keira',
+    'fact-license': 'Ліцензія',
+    'fact-updated': 'Оновлено',
+    'history-title': 'Історія версій ({count})',
+    'history-current': 'поточна',
+    'history-no-changelog': 'Без опису змін.',
     'authors-title': 'Автори',
     'authors-summary': 'Авторів: {authors} · елементів: {items}',
     'authors-search': 'Пошук автора або додатка',
@@ -73,6 +94,27 @@ const UI_STRINGS = {
     'sort-reverse': 'Reverse order',
     'card-added': 'Added {date}',
     'card-updated': 'Updated {date}',
+    'search-label': 'Search',
+    'search-placeholder': 'Search by name, description or author',
+    'filter-type': 'Type',
+    'filter-all-types': 'All types',
+    'filter-lua': 'Lua',
+    'filter-binary': 'Firmware (.bin)',
+    'filter-archive': 'Archive',
+    'filter-favorites': 'Favorites',
+    'fav-add': 'Add to favorites',
+    'fav-remove': 'Remove from favorites',
+    'list-empty': 'Nothing found.',
+    'list-empty-favorites': 'Nothing here yet: tap ☆ on a card to add it to your favorites.',
+    'list-clear': 'Clear search and filters',
+    'fact-version': 'Version',
+    'fact-type': 'Type',
+    'fact-keira': 'Keira',
+    'fact-license': 'License',
+    'fact-updated': 'Updated',
+    'history-title': 'Version history ({count})',
+    'history-current': 'current',
+    'history-no-changelog': 'No changelog.',
     'authors-title': 'Authors',
     'authors-summary': '{authors} authors · {items} items',
     'authors-search': 'Search authors or items',
@@ -128,6 +170,13 @@ class LilkaRepository {
     this.sortReverse = this.loadSortReverse();
     // listing.json per kind, fetched once per visit
     this.listings = {};
+    // Search (also in the address bar as ?q=), entry type filter and the
+    // favorites toggle, applied to listing.json in the page
+    this.query = '';
+    this.entryFilter = '';
+    this.favoritesOnly = false;
+    // "<type>/<path>" of starred items, kept in this browser only
+    this.favorites = this.loadFavorites();
     // community.js is optional: without it the catalog stays read-only
     this.community =
         typeof CommunityUI !== 'undefined' ? new CommunityUI(this) : null;
@@ -182,6 +231,14 @@ class LilkaRepository {
     document.querySelectorAll('[data-i18n-title]').forEach(el => {
       const text = strings[el.dataset.i18nTitle];
       if (text) el.title = text;
+    });
+    document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+      const text = strings[el.dataset.i18nPlaceholder];
+      if (text) el.placeholder = text;
+    });
+    document.querySelectorAll('[data-i18n-aria-label]').forEach(el => {
+      const text = strings[el.dataset.i18nAriaLabel];
+      if (text) el.setAttribute('aria-label', text);
     });
   }
 
@@ -303,6 +360,130 @@ class LilkaRepository {
     return this.listings[type];
   }
 
+  // --- Favorites: a list in localStorage, no account needed ----------------
+
+  loadFavorites() {
+    try {
+      const list = JSON.parse(localStorage.getItem('lilka-favorites') || '[]');
+      return new Set(Array.isArray(list) ? list.filter(key => typeof key === 'string') : []);
+    } catch (e) {
+      return new Set();
+    }
+  }
+
+  saveFavorites() {
+    try {
+      localStorage.setItem('lilka-favorites', JSON.stringify([...this.favorites]));
+    } catch (e) {
+      // the stars then last for this visit only
+    }
+  }
+
+  isFavorite(type, path) {
+    return this.favorites.has(`${type}/${path}`);
+  }
+
+  toggleFavorite(type, path) {
+    const key = `${type}/${path}`;
+    const on = !this.favorites.has(key);
+    if (on) this.favorites.add(key);
+    else this.favorites.delete(key);
+    this.saveFavorites();
+    if (window.umami) window.umami.track('favorite', {type, item: path, on});
+    return on;
+  }
+
+  favoriteButton(type, path, extraClass = '') {
+    const on = this.isFavorite(type, path);
+    const label = this.ui(on ? 'fav-remove' : 'fav-add');
+    return `<button type="button" class="fav-btn ${extraClass}" data-fav-type="${this.escapeHtml(type)}"
+        data-fav-path="${this.escapeHtml(path)}" aria-pressed="${on}" title="${this.escapeHtml(label)}"
+        aria-label="${this.escapeHtml(label)}">${on ? '★' : '☆'}</button>`;
+  }
+
+  // Every star of this item on the page (card and window) follows a click
+  syncFavoriteButtons(type, path) {
+    const on = this.isFavorite(type, path);
+    const label = this.ui(on ? 'fav-remove' : 'fav-add');
+    document.querySelectorAll('.fav-btn').forEach(btn => {
+      if (btn.dataset.favType !== type || btn.dataset.favPath !== path) return;
+      btn.textContent = on ? '★' : '☆';
+      btn.setAttribute('aria-pressed', String(on));
+      btn.title = label;
+      btn.setAttribute('aria-label', label);
+    });
+  }
+
+  // --- Search and filters ----------------------------------------------------
+
+  // Lower case, and the Ukrainian apostrophe in all its spellings as one
+  normalizeSearch(text) {
+    return String(text || '').toLocaleLowerCase().replace(/[ʼ’'`]/g, '\'');
+  }
+
+  searchText(entry) {
+    const parts = [entry.path, entry.name, entry.short_description, entry.author];
+    for (const loc of Object.values(entry.localization || {})) {
+      parts.push(loc.name, loc.short_description);
+    }
+    return this.normalizeSearch(parts.filter(Boolean).join('\n'));
+  }
+
+  filterItems(items) {
+    const words = this.normalizeSearch(this.query).split(/\s+/).filter(Boolean);
+    return items.filter(entry => {
+      if (this.favoritesOnly && !this.isFavorite(this.currentType, entry.path)) return false;
+      if (this.entryFilter && entry.entry_type !== this.entryFilter) return false;
+      if (!words.length) return true;
+      const text = this.searchText(entry);
+      return words.every(word => text.includes(word));
+    });
+  }
+
+  hasFilters() {
+    return !!(this.query.trim() || this.entryFilter || this.favoritesOnly);
+  }
+
+  // The type filter only appears when this tab has more than one entry type,
+  // with the types it has; the favorites count is for this tab
+  updateFilterControls(listing) {
+    document.getElementById('listFilters').hidden = !listing;
+    if (!listing) return;
+    const search = document.getElementById('searchInput');
+    if (search.value !== this.query) search.value = this.query;
+
+    const types = new Set(listing.map(e => e.entry_type).filter(Boolean));
+    const select = document.getElementById('typeFilter');
+    select.hidden = types.size < 2;
+    if (select.hidden || !types.has(this.entryFilter)) this.entryFilter = '';
+    select.querySelectorAll('option').forEach(option => {
+      option.hidden = !!option.value && !types.has(option.value);
+    });
+    select.value = this.entryFilter;
+
+    const favorites = listing.filter(e => this.isFavorite(this.currentType, e.path)).length;
+    const toggle = document.getElementById('favoritesOnly');
+    toggle.setAttribute('aria-pressed', String(this.favoritesOnly));
+    document.getElementById('favoritesCount').textContent = favorites ? String(favorites) : '';
+  }
+
+  renderEmptyList(container) {
+    const key = this.favoritesOnly && !this.query.trim() && !this.entryFilter ?
+        'list-empty-favorites' : 'list-empty';
+    container.innerHTML = `
+        <div class="list-empty">
+          <p>${this.escapeHtml(this.ui(key))}</p>
+          <button type="button" class="btn list-clear">${this.escapeHtml(this.ui('list-clear'))}</button>
+        </div>`;
+    container.querySelector('.list-clear').addEventListener('click', () => {
+      this.query = '';
+      this.entryFilter = '';
+      this.favoritesOnly = false;
+      this.currentPage = 0;
+      this.loadPage();
+    });
+  }
+
   sortItems(items) {
     const name = (e) => String(this.localized(e, 'name') || e.path);
     const collator = new Intl.Collator(this.currentLang, {sensitivity: 'base'});
@@ -355,6 +536,8 @@ class LilkaRepository {
     const item = params.get('item');
     if (SORTS.includes(params.get('sort'))) this.setSort(params.get('sort'));
     if (params.has('reverse')) this.setSortReverse(params.get('reverse') === '1');
+    // A shared search link, or back/forward to one
+    this.query = params.get('q') || '';
 
     if (this.isCommunityView(type)) {
       await this.community.show(type, params);
@@ -365,10 +548,13 @@ class LilkaRepository {
     if (item && type) {
       this.currentType = type;
       this.showView(type);
-      // Load the page list in background first
-      await this.loadPage();
+      // Load the page list in background first, without a history entry of
+      // its own: the address stays the item's, as it was shared
+      await this.loadPage({replaceUrl: true});
       // Then open the modal
-      await this.openDirectItem(type, item);
+      if (await this.openDirectItem(type, item)) {
+        this.updateURL(type, null, item, {replace: true});
+      }
       return;
     }
 
@@ -423,13 +609,15 @@ class LilkaRepository {
 
       const manifest = await response.json();
       this.showModal(manifest, itemName);
+      return true;
     } catch (error) {
       console.error('Error opening direct item:', error);
       this.showError(`Failed to load ${type.slice(0, -1)}: ${itemName}`);
+      return false;
     }
   }
 
-  updateURL(type = null, page = null, itemName = null) {
+  updateURL(type = null, page = null, itemName = null, {replace = false} = {}) {
     const params = new URLSearchParams();
 
     if (itemName) {
@@ -448,10 +636,19 @@ class LilkaRepository {
       if (this.sortReverse && ['apps', 'wallpapers', 'mods'].includes(type)) {
         params.set('reverse', '1');
       }
+      if (this.query.trim() && ['apps', 'wallpapers', 'mods'].includes(type)) {
+        params.set('q', this.query.trim());
+      }
     }
 
-    const url = params.toString() ? `?${params.toString()}` : '/';
-    window.history.pushState({type, page, itemName}, '', url);
+    // `/` would leave the folder when the site is not at the root of its host
+    const url = params.toString() ? `?${params.toString()}` : location.pathname;
+    // The same address again (a re-render) adds no history entry
+    if (replace || url === `${location.search || location.pathname}`) {
+      window.history.replaceState({type, page, itemName}, '', url);
+    } else {
+      window.history.pushState({type, page, itemName}, '', url);
+    }
   }
 
   setupLightboxListeners() {
@@ -529,6 +726,50 @@ class LilkaRepository {
       if (window.umami) window.umami.track('sort', {sort: this.sort, reverse: this.sortReverse});
       this.currentPage = 0;
       this.loadPage();
+    });
+
+    // Search as you type, a moment after the last key
+    const search = document.getElementById('searchInput');
+    let searchTimer = null;
+    search.addEventListener('input', () => {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => {
+        if (search.value === this.query) return;
+        this.query = search.value;
+        this.currentPage = 0;
+        this.loadPage({replaceUrl: true});
+      }, 150);
+    });
+    search.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && search.value) {
+        // Clears the box instead of closing anything else
+        e.stopPropagation();
+        search.value = '';
+        search.dispatchEvent(new Event('input'));
+      }
+    });
+    search.addEventListener('change', () => {
+      if (window.umami && search.value.trim()) window.umami.track('search', {type: this.currentType});
+    });
+    document.getElementById('typeFilter').addEventListener('change', (e) => {
+      this.entryFilter = e.target.value;
+      this.currentPage = 0;
+      this.loadPage({replaceUrl: true});
+    });
+    document.getElementById('favoritesOnly').addEventListener('click', () => {
+      this.favoritesOnly = !this.favoritesOnly;
+      this.currentPage = 0;
+      this.loadPage({replaceUrl: true});
+    });
+    // Stars set in another tab of the catalog
+    window.addEventListener('storage', (e) => {
+      if (e.key !== 'lilka-favorites') return;
+      this.favorites = this.loadFavorites();
+      document.querySelectorAll('.fav-btn').forEach(btn =>
+          this.syncFavoriteButtons(btn.dataset.favType, btn.dataset.favPath));
+      if (!this.isCommunityView(this.currentType) && this.currentType !== 'authors') {
+        this.updateFilterControls(this.listings[this.currentType] || null);
+      }
     });
 
     for (const id of ['prevPage', 'prevPageBottom']) {
@@ -941,7 +1182,8 @@ class LilkaRepository {
     }
   }
 
-  async loadPage() {
+  // `replaceUrl` while typing a search: one history entry, not one per key
+  async loadPage({replaceUrl = false} = {}) {
     // Community views render themselves
     if (this.isCommunityView(this.currentType)) {
       return;
@@ -955,16 +1197,18 @@ class LilkaRepository {
       // Without listing.json only the fixed pages exist, sorted by id: a
       // selector that cannot change anything would only look broken
       document.querySelector('.list-toolbar').hidden = !listing;
+      this.updateFilterControls(listing);
       if (listing) {
-        const sorted = this.sortItems(listing);
+        const sorted = this.sortItems(this.filterItems(listing));
         this.totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
         if (this.currentPage >= this.totalPages) this.currentPage = 0;
         const items = document.getElementById('items');
         items.innerHTML = '';
+        if (!sorted.length && this.hasFilters()) this.renderEmptyList(items);
         sorted.slice(this.currentPage * PAGE_SIZE, (this.currentPage + 1) * PAGE_SIZE)
             .forEach(entry => items.appendChild(this.createItemCard(entry, entry.path)));
         this.updatePagination();
-        this.updateURL(this.currentType, this.currentPage);
+        this.updateURL(this.currentType, this.currentPage, null, {replace: replaceUrl});
         return;
       }
 
@@ -1038,6 +1282,7 @@ class LilkaRepository {
                 this.escapeHtml(
                     cardName)}" class="icon" data-hide-broken>` :
             ''}
+            ${this.favoriteButton(this.currentType, manifestName, 'fav-card')}
             <h3>${this.escapeHtml(cardName)}</h3>
             <div class="author"><a href="?type=authors&author=${
         encodeURIComponent(
@@ -1057,6 +1302,16 @@ class LilkaRepository {
         this.navigateToAuthor(manifest.author);
       });
     }
+
+    card.querySelector('.fav-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      const type = this.currentType;
+      this.toggleFavorite(type, manifestName);
+      this.syncFavoriteButtons(type, manifestName);
+      // With the Favorites toggle on, an unstarred card leaves the list
+      if (this.favoritesOnly) this.loadPage({replaceUrl: true});
+      else this.updateFilterControls(this.listings[type] || null);
+    });
 
     card.addEventListener('click', () => {
       // Track card clicks to view details
@@ -1346,12 +1601,21 @@ class LilkaRepository {
 
     modalBody.innerHTML = `
         <div class="modal-header">
-            <h2>${this.escapeHtml(modalName)}</h2>
+            <div class="modal-title-row">
+                <h2>${this.escapeHtml(modalName)}</h2>
+                <div class="modal-actions">
+                    ${this.favoriteButton(type, manifestName, 'fav-modal')}
+                    <button type="button" class="btn-sm share-link" data-umami-event="share-link"
+                        data-umami-event-item="${this.escapeHtml(manifestName)}">🔗 <span>${
+        this.escapeHtml(this.ui('author-copy'))}</span></button>
+                </div>
+            </div>
             <div class="author"><a href="?type=authors&author=${
         encodeURIComponent(
             manifest.author)}" class="author-link" data-author="${
         this.escapeHtml(
             manifest.author)}">${this.escapeHtml(manifest.author)}</a></div>
+            <ul class="modal-facts" data-facts hidden></ul>
         </div>
         ${
         manifest.icon ?
@@ -1368,6 +1632,7 @@ class LilkaRepository {
         this.renderMarkdownSection(
             '📋 Changelog', this.localized(manifest, 'changelog'),
             manifest, basePath)}
+        <div class="modal-section" data-history hidden></div>
         ${this.renderFilesSection(manifest, basePath)}
         ${this.renderSecuritySection(manifest)}
         ${this.renderSourcesSection(manifest)}
@@ -1380,6 +1645,22 @@ class LilkaRepository {
     if (modalContent) {
       modalContent.scrollTop = 0;
     }
+
+    // Facts and history come from files the list does not need up front
+    this.fillFacts(modalBody, type, manifestName);
+    this.fillHistory(modalBody, type, manifestName, manifest, basePath);
+
+    modalBody.querySelector('.fav-btn').addEventListener('click', () => {
+      this.toggleFavorite(type, manifestName);
+      this.syncFavoriteButtons(type, manifestName);
+      if (type === this.currentType && !this.isCommunityView(type) && type !== 'authors') {
+        // The list behind the window: its count, and with the toggle on, its cards
+        if (this.favoritesOnly) this.loadPage({replaceUrl: true});
+        else this.updateFilterControls(this.listings[type] || null);
+      }
+    });
+    const share = modalBody.querySelector('.share-link');
+    share.addEventListener('click', () => this.shareItem(share, type, manifestName, modalName));
 
     // Screenshot thumbnails open the lightbox
     modalBody.querySelectorAll('.screenshot-thumb').forEach(thumb => {
@@ -1576,6 +1857,99 @@ class LilkaRepository {
 
   // Descriptions and changelogs are written by app authors; marked passes raw
   // HTML through, so its output is sanitized before it reaches the page
+  // --- Item window: facts, history, sharing ---------------------------------
+
+  // Version, Keira version, license and date of the latest version, from
+  // listing.json (loaded here when the window was opened from Authors)
+  async fillFacts(modalBody, type, path) {
+    await this.loadListing(type);
+    const entry = this.listingEntry(type, path);
+    const list = modalBody.querySelector('[data-facts]');
+    if (!entry || !list || !modalBody.contains(list)) return;
+    const facts = [];
+    if (entry.version) facts.push([this.ui('fact-version'), entry.version]);
+    if (entry.entry_type) {
+      const label = {lua: 'filter-lua', binary: 'filter-binary', archive: 'filter-archive'}[entry.entry_type];
+      if (label) facts.push([this.ui('fact-type'), this.ui(label)]);
+    }
+    if (entry.keira_version) facts.push([this.ui('fact-keira'), `≥ ${entry.keira_version}`]);
+    if (entry.license) facts.push([this.ui('fact-license'), entry.license]);
+    const date = this.formatDate(entry.updated);
+    if (date) facts.push([this.ui('fact-updated'), date]);
+    list.innerHTML = facts.map(([label, value]) => `
+        <li><span class="fact-label">${this.escapeHtml(label)}</span> <span class="fact-value">${
+        this.escapeHtml(value)}</span></li>`).join('');
+    list.hidden = !facts.length;
+  }
+
+  // versions.json: every approved version with its changelog, once per item
+  // and visit. Shown only when there is more than one
+  async fillHistory(modalBody, type, path, manifest, basePath) {
+    this.versionsCache = this.versionsCache || {};
+    const key = `${type}/${path}`;
+    if (!(key in this.versionsCache)) {
+      try {
+        const response = await fetch(this.dataUrl(`${type}/${path}/versions.json`));
+        this.versionsCache[key] = response.ok ? await response.json() : null;
+      } catch (e) {
+        this.versionsCache[key] = null;
+      }
+    }
+    const data = this.versionsCache[key];
+    const box = modalBody.querySelector('[data-history]');
+    if (!box || !modalBody.contains(box) || !data || !Array.isArray(data.versions) ||
+        data.versions.length < 2) {
+      return;
+    }
+    box.innerHTML = `
+        <details class="version-history">
+          <summary><h3>🕘 ${this.escapeHtml(this.ui('history-title', {count: data.versions.length}))}</h3></summary>
+          <ol class="version-list">
+            ${data.versions.map(v => {
+              const changelog = this.localized(v, 'changelog');
+              const date = this.formatDate(v.approved_at);
+              return `
+              <li class="version-item">
+                <div class="version-head">
+                  <strong>${this.escapeHtml(v.version)}</strong>
+                  ${v.version === data.latest ?
+                      `<span class="version-current">${this.escapeHtml(this.ui('history-current'))}</span>` : ''}
+                  ${date ? `<span class="version-meta">${this.escapeHtml(date)}</span>` : ''}
+                  ${v.keira_version ? `<span class="version-meta">Keira ≥ ${this.escapeHtml(v.keira_version)}</span>` : ''}
+                </div>
+                ${changelog ?
+                    `<div class="markdown-content">${this.renderMarkdown(changelog, manifest, basePath)}</div>` :
+                    `<p class="version-meta">${this.escapeHtml(this.ui('history-no-changelog'))}</p>`}
+              </li>`;
+            }).join('')}
+          </ol>
+        </details>`;
+    box.hidden = false;
+  }
+
+  // The item's page on the mirror (<type>/<id>/, see mirror_api.py) has the
+  // link preview Discord and Telegram show; it forwards here. Phones get the
+  // share sheet, everything else a copy to the clipboard
+  async shareItem(button, type, path, name) {
+    const url = new URL(`${type}/${encodeURIComponent(path)}/`, document.baseURI).href;
+    if (navigator.share && window.matchMedia('(hover: none)').matches) {
+      try {
+        await navigator.share({title: name, url});
+        return;
+      } catch (e) {
+        if (e && e.name === 'AbortError') return;
+      }
+    }
+    const label = button.querySelector('span');
+    try {
+      await navigator.clipboard.writeText(url);
+      label.textContent = this.ui('author-copied');
+      setTimeout(() => { label.textContent = this.ui('author-copy'); }, 1500);
+    } catch (e) {
+      prompt(this.ui('author-copy'), url);
+    }
+  }
+
   renderMarkdown(text, manifest, basePath) {
     const html = DOMPurify.sanitize(marked.parse(text));
     if (!manifest || !basePath) return html;

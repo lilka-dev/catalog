@@ -72,7 +72,11 @@ mirror is a plain copy of that tree.
    file with ClamAV and, when clean, uploads the compressed images, `icon_min`,
    `package.zip` and the checksum record → `pending_review`; or `infected`.
 4. A moderator approves (`pending_review` only) → version `approved`, app
-   `published`, the mirror rebuild is dispatched.
+   `published`, the mirror rebuild is dispatched. The version becomes the
+   app's latest (`latest_version_id`, what devices get) only if it is not
+   lower than the current one: approving 1.1 after 1.2 adds 1.1 to the
+   history and keeps 1.2. Version numbers that do not compare as dotted
+   numbers keep the old rule, the newest approval wins.
 5. Owner or moderator can hide the app (`PATCH status: hidden`); it drops out
    of `/catalog` at once and out of the mirror on its next build.
 
@@ -174,6 +178,8 @@ All bodies are JSON unless noted. Authenticated calls send
 | GET | `/auth/me` | user | Current user with their effective `role` and `permissions`, and `ratings` (slug → stars) they gave, so the site shows them without a request per app |
 | GET | `/catalog/{apps,wallpapers,mods}/index_<n>.json` | mirror job | Ids of published items, 12 per page |
 | GET | `/catalog/<dir>/<id>/index.json`, `index_short.json` | mirror job | Manifests in build.py's format |
+| GET | `/catalog/<dir>/listing.json` | mirror job | The website's list: every item with dates, rating, `version`, `keira_version`, `entry_type`, `license` |
+| GET | `/catalog/<dir>/<id>/versions.json` | mirror job | The website's version history: every approved version, highest first, with `keira_version`, `approved_at` and the changelog per language |
 | GET | `/catalog/<dir>/<id>/static/<file>`, `package.zip` | mirror job | Files |
 | GET | `/catalog/authors.json` | mirror job | Items grouped by author line (build.py's format) |
 | GET | `/catalog/authors_info.json` | mirror job | The website's Authors tab: one entry per person (GitHub logins merged ignoring case), public GitHub profile of authors who signed in, Printables links for mod authors, item counts and dates |
@@ -182,7 +188,7 @@ All bodies are JSON unless noted. Authenticated calls send
 | GET | `/apps/:slug` | user / owner | Detail with versions; owner also sees drafts and statuses |
 | POST | `/apps` | user | Create draft; `kind`: `app`, `wallpaper` or `mod` |
 | PATCH | `/apps/:slug` | owner, mod | Edit metadata, `status: hidden \| published`; moderators also `author`, `owner` (login) |
-| POST | `/apps/:slug/versions` | owner, mod | Multipart: `version`, `keira_version`, `entry_type` (`lua`, `binary`, `archive`; `js` (mJS) is no longer accepted), `changelog`, files `entry`, `files[]`, `icon`, `screenshots[]`. Mods: no entry, model files as `files[]` |
+| POST | `/apps/:slug/versions` | owner, mod | Multipart: `version`, `keira_version`, `entry_type` (`lua`, `binary`, `archive`; `js` (mJS) is no longer accepted), `changelog`, files `entry`, `files[]`, `icon`, `screenshots[]`. Mods: no entry, model files as `files[]`. `keep_icon`, `keep_screenshots`, `keep_files` (`1`) copy those files of the approved version into this one (409 without one); a new file with the same name wins. The version must be higher than every earlier one that is not rejected or infected (409) |
 | PUT | `/apps/:slug/rating` | user (not owner) | `{ "stars": 1..5 }` → `{ my_rating, average, count }`; sending the same stars again writes nothing |
 | DELETE | `/apps/:slug/rating` | user | Removes your rating |
 | POST | `/apps/:slug/reports` | user | `{ "reason": "..." }` |
@@ -196,7 +202,7 @@ All bodies are JSON unless noted. Authenticated calls send
 | PATCH | `/mod/users/:login` | mod | `{ "trusted"?: bool, "note"?: string \| null }`; trusted lifts the per-account item limits |
 | POST | `/mod/users/:login/sign-out` | mod | Ends every session of the user |
 | DELETE | `/mod/users/:login/ratings` | mod | Removes every rating the user gave |
-| POST | `/mod/versions/:id/approve` | mod | `{ "note"?: "..." }` |
+| POST | `/mod/versions/:id/approve` | mod | `{ "note"?: "..." }` → `{ ok, latest }`; `latest: false` when a higher version stays the latest |
 | POST | `/mod/versions/:id/reject` | mod | `{ "note": "reason" }` |
 | GET | `/mod/reports[?slug=]` | mod | Open reports, or every report on one item |
 | POST | `/mod/reports/:id/resolve` | mod | |
@@ -213,8 +219,9 @@ table in the [main README](../README.md#roles-and-moderation)). "mirror job"
 means `Authorization: Bearer <MIRROR_SECRET>`, "processor"
 `Bearer <SCAN_SECRET>`; both fail closed when the secret is not set.
 
-Limits: 8 MB per file, 24 MB per upload, 16 extra files, 6 screenshots, 5
-versions waiting for review per user. File names: letters, digits, `.`, `_`,
+Limits: 8 MB per file, 24 MB per upload, 16 extra files, 6 screenshots (kept
+files count toward both, but not toward the 24 MB: they are copied inside R2,
+not uploaded), 5 versions waiting for review per user. File names: letters, digits, `.`, `_`,
 `-` (the catalog flattens files by name).
 
 ### Signing in from a page
@@ -246,7 +253,7 @@ npm ci
 cp .dev.vars.example .dev.vars   # dev placeholders; set GITHUB_CLIENT_SECRET to any value
 npm run db:migrate:local
 npm run dev            # http://localhost:8787
-npm run smoke          # in another terminal: 196 end-to-end checks
+npm run smoke          # in another terminal: 223 end-to-end checks
 npm run typecheck
 ```
 
@@ -282,6 +289,7 @@ Repository → Settings → Secrets and variables → Actions:
 | `MIRROR_SECRET` | long random string | deploy-pages.yml and the Worker |
 | `OAUTH_CLIENT_SECRET` | GitHub OAuth App client secret (optional: the Worker keeps its own) | the Worker |
 | `DISPATCH_TOKEN` | fine-grained PAT for `lilka-dev/catalog` only, *Contents: Read and write* (optional; without it uploads wait for the 6-hourly run and approvals for the hourly mirror) | the Worker |
+| `DISCORD_WEBHOOK_URL` | Discord channel webhook (optional; without it new items are not announced) | deploy-pages.yml `announce` job |
 
 GitHub does not allow secret names starting with `GITHUB_`, hence the two
 renamed ones; the workflow maps them to the Worker's names.
