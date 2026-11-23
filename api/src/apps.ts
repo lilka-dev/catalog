@@ -6,13 +6,15 @@ import {
     SLUG_RE,
     dispatch,
     fail,
+    isUniqueViolation,
     parseJsonArray,
     readJson,
     requireUser,
     type EntryType,
 } from './util';
-import { MAX_UPLOAD_BYTES, createVersion, objectKey, readVersionForm } from './versions';
+import { MAX_UPLOAD_BYTES, createVersion, deleteVersionFiles, objectKey, readVersionForm } from './versions';
 import { can } from './permissions';
+import { logStatement, type LogEntry } from './log';
 
 const PAGE_SIZE = 24;
 /** Unreviewed uploads per user: keeps one account from flooding the queue. */
@@ -41,6 +43,10 @@ export interface AppRow {
     sources_url: string;
     license: string | null;
     status: 'draft' | 'published' | 'hidden';
+    latest_version_id: number | null;
+    /** Hidden by a moderator: only a moderator publishes it again (migration 0010). */
+    mod_hidden: number;
+    hidden_note: string | null;
     created_at: string;
     updated_at: string;
     owner_login: string;
@@ -61,6 +67,8 @@ export interface VersionRow {
     changelog: string | null;
     changelog_en: string | null;
     checksums: string;
+    /** Names copied from the approved version by keep_* (migration 0010). */
+    kept: string | null;
     status: 'pending_scan' | 'pending_review' | 'approved' | 'rejected' | 'infected';
     auto_approve: number;
     icon_min: string | null;
@@ -130,6 +138,7 @@ export function serializeVersion(env: Env, slug: string, v: VersionRow, detailed
         package: ref(v.package),
         screenshots: screenshots.map((name) => ({ name, url: url(name) })),
         checksums: parseJsonArray(v.checksums),
+        kept: parseJsonArray<string>(v.kept),
         security,
         ...(detailed ? { scan_detail: v.scan_detail, review_note: v.review_note } : {}),
     };
@@ -141,6 +150,9 @@ export function serializeApp(env: Env, a: AppRow, latest: VersionRow | null) {
         kind: a.kind,
         catalog_path: `${kindDir(a.kind)}/${a.slug}`,
         status: a.status,
+        // A moderator hid it: the owner sees why and cannot bring it back
+        mod_hidden: !!a.mod_hidden,
+        hidden_note: a.mod_hidden ? a.hidden_note : null,
         author: displayAuthor(a),
         name: localized(a.name_uk, a.name_en),
         short_description: localized(a.short_uk, a.short_en),
@@ -244,6 +256,8 @@ interface AppInput {
     sources_url?: unknown;
     license?: unknown;
     status?: unknown;
+    /** With status hidden, by a moderator: the reason the owner sees. */
+    note?: unknown;
     author?: unknown;
     owner?: unknown;
 }
@@ -303,7 +317,8 @@ apps.get('/:slug', async (c) => {
     )
         .bind(app.id)
         .all<VersionRow>();
-    const latest = results.find((v) => v.status === 'approved') ?? null;
+    // What devices get: the highest approved version, not the newest approval
+    const latest = results.find((v) => v.id === app.latest_version_id) ?? null;
 
     return c.json({
         ...serializeApp(c.env, app, latest),
@@ -347,27 +362,33 @@ apps.post('/', async (c) => {
         }
     }
 
-    await c.env.DB.prepare(
-        `INSERT INTO apps (slug, owner_id, created_by, kind, name_uk, name_en, short_uk, short_en,
-                           description_uk, description_en, sources_type, sources_url, license)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-        .bind(
-            body.slug,
-            user.id,
-            user.id,
-            kind,
-            name.uk,
-            name.en,
-            short.uk,
-            short.en,
-            description.uk,
-            description.en,
-            sourcesTypeOf(sources),
-            sources,
-            license,
+    try {
+        await c.env.DB.prepare(
+            `INSERT INTO apps (slug, owner_id, created_by, kind, name_uk, name_en, short_uk, short_en,
+                               description_uk, description_en, sources_type, sources_url, license)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
-        .run();
+            .bind(
+                body.slug,
+                user.id,
+                user.id,
+                kind,
+                name.uk,
+                name.en,
+                short.uk,
+                short.en,
+                description.uk,
+                description.en,
+                sourcesTypeOf(sources),
+                sources,
+                license,
+            )
+            .run();
+    } catch (error) {
+        // Two requests for the same slug: the check above let both through
+        if (isUniqueViolation(error)) fail(409, 'slug is taken');
+        throw error;
+    }
 
     const app = await findApp(c.env, body.slug);
     return c.json(serializeApp(c.env, app!, null), 201);
@@ -389,38 +410,63 @@ apps.patch('/:slug', async (c) => {
     // Imported items were checked against the import's limits, longer than a
     // new submission's; a moderator editing one must be able to save it
     const mod = can(user, 'items.edit');
+    // Staff working on someone else's item: that is moderation, and it is logged
+    const moderating = mod && user.id !== app.owner_id;
+    const log: LogEntry[] = [];
+    const edited: string[] = [];
     if (body.name !== undefined) {
         const name = readLocalized(body.name, 'name', mod ? 200 : 64);
         if (!name.uk && !name.en) fail(400, 'name cannot be empty');
         set('name_uk', name.uk);
         set('name_en', name.en);
+        edited.push('name');
     }
     if (body.short_description !== undefined) {
         const short = readLocalized(body.short_description, 'short_description', mod ? 1000 : 200);
         if (!short.uk && !short.en) fail(400, 'short_description cannot be empty');
         set('short_uk', short.uk);
         set('short_en', short.en);
+        edited.push('short_description');
     }
     if (body.description !== undefined) {
         const description = readLocalized(body.description, 'description', mod ? 100000 : 20000);
         set('description_uk', description.uk);
         set('description_en', description.en);
+        edited.push('description');
     }
     if (body.sources_url !== undefined) {
         const sources = readSourcesUrl(body.sources_url, { strict: !mod });
         set('sources_url', sources);
         set('sources_type', sourcesTypeOf(sources));
+        edited.push('sources_url');
     }
-    if (body.license !== undefined) set('license', readLicense(body.license));
+    if (body.license !== undefined) {
+        set('license', readLicense(body.license));
+        edited.push('license');
+    }
+    if (moderating && edited.length) log.push({ action: 'item.edit', detail: { fields: edited } });
     if (body.status !== undefined) {
         if (body.status === 'hidden') {
             set('status', 'hidden');
+            // The owner hiding an item a moderator hid changes nothing about
+            // who may bring it back: mod_hidden is left as it is
+            if (moderating) {
+                if (body.note !== undefined && body.note !== null && (typeof body.note !== 'string' || body.note.length > 1000)) {
+                    fail(400, 'note must be text up to 1000 characters');
+                }
+                const note = typeof body.note === 'string' && body.note.trim() ? body.note.trim() : null;
+                set('mod_hidden', 1);
+                set('hidden_note', note);
+                log.push({ action: 'item.hide', detail: note ? { note } : null });
+            }
         } else if (body.status === 'published') {
-            const row = await c.env.DB.prepare(`SELECT latest_version_id FROM apps WHERE id = ?`)
-                .bind(app.id)
-                .first<{ latest_version_id: number | null }>();
-            if (!row?.latest_version_id) fail(409, 'app has no approved version yet');
+            // Otherwise "Return to catalog" would undo a moderator's decision
+            if (app.mod_hidden && !mod) fail(403, 'a moderator hid this item; only a moderator can publish it again');
+            if (!app.latest_version_id) fail(409, 'app has no approved version yet');
             set('status', 'published');
+            set('mod_hidden', 0);
+            set('hidden_note', null);
+            if (moderating) log.push({ action: 'item.publish' });
         } else {
             fail(400, 'status must be hidden or published');
         }
@@ -433,24 +479,35 @@ apps.patch('/:slug', async (c) => {
             if (body.author !== null && (typeof body.author !== 'string' || body.author.length > 64)) {
                 fail(400, 'author must be a short string or null');
             }
-            set('author', body.author ? (body.author as string).trim() : null);
+            const author = body.author ? (body.author as string).trim() : null;
+            set('author', author);
+            if (author !== app.author) log.push({ action: 'item.author', detail: { from: app.author, to: author } });
         }
         if (body.owner !== undefined) {
             if (typeof body.owner !== 'string') fail(400, 'owner must be a GitHub login');
-            const owner = await c.env.DB.prepare(`SELECT id, role FROM users WHERE login = ? COLLATE NOCASE`)
+            const owner = await c.env.DB.prepare(`SELECT id, login, role FROM users WHERE login = ? COLLATE NOCASE`)
                 .bind(body.owner)
-                .first<{ id: number; role: string }>();
+                .first<{ id: number; login: string; role: string }>();
             if (!owner) fail(404, 'that user has never signed in');
             if (owner.role === 'banned') fail(409, 'that user is banned');
             set('owner_id', owner.id);
+            if (owner.id !== app.owner_id) {
+                log.push({
+                    action: 'item.owner',
+                    user: { id: owner.id, login: owner.login },
+                    detail: { from: app.owner_login, to: owner.login },
+                });
+            }
         }
     }
     if (sets.length === 0) fail(400, 'nothing to update');
 
     sets.push(`updated_at = datetime('now')`);
-    await c.env.DB.prepare(`UPDATE apps SET ${sets.join(', ')} WHERE id = ?`)
-        .bind(...params, app.id)
-        .run();
+    await c.env.DB.batch([
+        c.env.DB.prepare(`UPDATE apps SET ${sets.join(', ')} WHERE id = ?`).bind(...params, app.id),
+        // An entry names the owner unless it is about someone else (a hand-over)
+        ...log.map((entry) => logStatement(c.env, user, { user: { id: app.owner_id, login: app.owner_login }, ...entry, app })),
+    ]);
 
     // The device mirror is rebuilt from the API; it has to pick this up
     if (app.status === 'published' || body.status !== undefined) {
@@ -459,6 +516,41 @@ apps.patch('/:slug', async (c) => {
     const updated = await findApp(c.env, app.slug);
     const latest = await latestApproved(c.env, [app.id]);
     return c.json(serializeApp(c.env, updated!, latest.get(app.id) ?? null));
+});
+
+/**
+ * Deletes an item that never had an approved version: a draft made by
+ * mistake, or one whose uploads were all rejected. It frees the slug and the
+ * place in the per-account limit. Anything that was ever approved can only be
+ * hidden here; deleting it for good is for admins (DELETE /mod/apps/:slug).
+ * The body repeats the slug, so a stray request cannot delete anything.
+ */
+apps.delete('/:slug', async (c) => {
+    const user = requireUser(c);
+    const slug = c.req.param('slug');
+    const app = await findApp(c.env, slug);
+    if (!app || !canManage(user, app)) fail(404, 'app not found');
+    const { confirm } = await readJson<{ confirm?: unknown }>(c).catch(() => ({ confirm: undefined }));
+    if (confirm !== slug) fail(400, 'confirm must repeat the slug');
+    const { results } = await c.env.DB.prepare(`SELECT status, storage_prefix FROM versions WHERE app_id = ?`)
+        .bind(app.id)
+        .all<{ status: string; storage_prefix: string }>();
+    if (app.latest_version_id || results.some((v) => v.status === 'approved')) {
+        fail(409, 'this item was approved before; hide it instead');
+    }
+    // An approval in the meantime sets latest_version_id, and then nothing is deleted
+    const deleted = await c.env.DB.prepare(`DELETE FROM apps WHERE id = ? AND latest_version_id IS NULL`).bind(app.id).run();
+    if (!deleted.meta.changes) fail(409, 'a version was approved in the meantime; hide the item instead');
+    if (user.id !== app.owner_id) {
+        await logStatement(c.env, user, {
+            action: 'item.delete',
+            app,
+            user: { id: app.owner_id, login: app.owner_login },
+            detail: { draft: true },
+        }).run();
+    }
+    for (const v of results) await deleteVersionFiles(c.env, v.storage_prefix);
+    return c.json({ ok: true });
 });
 
 /**
@@ -506,6 +598,43 @@ apps.post('/:slug/versions', async (c) => {
         .bind(versionId)
         .first<VersionRow>();
     return c.json(serializeVersion(c.env, app.slug, created!, true), 201);
+});
+
+/**
+ * Withdraws an upload that waits for the scan or the moderator, e.g. one sent
+ * with the wrong file. It frees its place among the 5 waiting uploads and its
+ * number. The processor skips a version that is gone (scripts/process.py).
+ */
+apps.delete('/:slug/versions/:id', async (c) => {
+    const user = requireUser(c);
+    const app = await findApp(c.env, c.req.param('slug'));
+    if (!app || !canManage(user, app)) fail(404, 'app not found');
+    const version = await c.env.DB.prepare(
+        `SELECT id, version, status, storage_prefix FROM versions WHERE id = ? AND app_id = ?`,
+    )
+        .bind(Number(c.req.param('id')), app.id)
+        .first<{ id: number; version: string; status: string; storage_prefix: string }>();
+    if (!version) fail(404, 'version not found');
+    if (version.status !== 'pending_scan' && version.status !== 'pending_review') {
+        fail(409, `version is ${version.status}; only an upload waiting for review can be withdrawn`);
+    }
+    const deleted = await c.env.DB.prepare(
+        `DELETE FROM versions WHERE id = ? AND status IN ('pending_scan', 'pending_review')`,
+    )
+        .bind(version.id)
+        .run();
+    if (!deleted.meta.changes) fail(409, 'the version was reviewed in the meantime');
+    if (user.id !== app.owner_id) {
+        await logStatement(c.env, user, {
+            action: 'version.withdraw',
+            app,
+            user: { id: app.owner_id, login: app.owner_login },
+            version,
+        }).run();
+    }
+    // Awaited, not left to waitUntil: a new upload with the same number reuses the folder
+    await deleteVersionFiles(c.env, version.storage_prefix);
+    return c.json({ ok: true });
 });
 
 /**

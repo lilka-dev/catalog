@@ -17,16 +17,17 @@ sha() { printf '%s' "$1" | shasum -a 256 | cut -d' ' -f1; }
 # smoke-mod has users.role = 'moderator' and a staff row, as migration 0009
 # leaves the moderators it moves over
 npx wrangler d1 execute lilka-catalog --local --command "
-DELETE FROM sessions; DELETE FROM ratings; DELETE FROM reports; DELETE FROM staff; UPDATE apps SET latest_version_id = NULL; DELETE FROM versions; DELETE FROM apps; DELETE FROM users WHERE id != 0;
+DELETE FROM sessions; DELETE FROM ratings; DELETE FROM reports; DELETE FROM staff; DELETE FROM mod_log; UPDATE apps SET latest_version_id = NULL; DELETE FROM versions; DELETE FROM apps; DELETE FROM users WHERE id != 0;
 INSERT INTO users (id, login, role, bio, blog) VALUES (1, 'smoke-dev', 'user', 'Makes <b>tests</b>', 'https://example.com/');
-INSERT INTO users (id, login, role) VALUES (2, 'smoke-mod', 'moderator'), (3, 'smoke-fan', 'user'), (7, 'smoke-admin', 'user'), (8, 'smoke-boss', 'user'), (11, 'smoke-keeper', 'user');
+INSERT INTO users (id, login, role) VALUES (2, 'smoke-mod', 'moderator'), (3, 'smoke-fan', 'user'), (7, 'smoke-admin', 'user'), (8, 'smoke-boss', 'user'), (11, 'smoke-keeper', 'user'), (12, 'smoke-author', 'user');
 INSERT INTO staff (user_id, role) VALUES (2, 'moderator'), (7, 'admin'), (8, 'main_admin');
 INSERT INTO sessions VALUES ('$(sha $USER_TOKEN)', 1, datetime('now', '+1 day'));
 INSERT INTO sessions VALUES ('$(sha $MOD_TOKEN)', 2, datetime('now', '+1 day'));
 INSERT INTO sessions VALUES ('$(sha fan-token)', 3, datetime('now', '+1 day'));
 INSERT INTO sessions VALUES ('$(sha admin-token)', 7, datetime('now', '+1 day'));
 INSERT INTO sessions VALUES ('$(sha boss-token)', 8, datetime('now', '+1 day'));
-INSERT INTO sessions VALUES ('$(sha keeper-token)', 11, datetime('now', '+1 day'));" >/dev/null
+INSERT INTO sessions VALUES ('$(sha keeper-token)', 11, datetime('now', '+1 day'));
+INSERT INTO sessions VALUES ('$(sha author-token)', 12, datetime('now', '+1 day'));" >/dev/null
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
@@ -363,6 +364,98 @@ check "export carries versions.json" ok \
     "$(jq -e '.documents["apps/smoke-keep/versions.json"] | fromjson | .versions | length == 3' "$work/body" >/dev/null && echo ok || echo missing)"
 check "index.json keeps the fields Keira knows" ok \
     "$(jq -e '.documents["apps/smoke-keep/index.json"] | fromjson | (has("version") or has("license")) | not' "$work/body" >/dev/null && echo ok || echo changed)"
+# --- moderation log, hiding, drafts, withdrawing (migration 0010) ---------
+author=(-H "Authorization: Bearer author-token")
+call 403 "the log is for staff" "${fan[@]}" "$API/mod/log"
+call 200 "reviews are in the log" "${mod[@]}" "$API/mod/log?app=smoke-keep"
+check "log: the last approval, by whom, not the latest" "version.approve smoke-mod 1.1.0 false smoke-keeper" \
+    "$(jq -r '.items[0] | "\(.action) \(.actor) \(.version) \(.detail.latest) \(.user_login)"' "$work/body")"
+call 200 "a rejection keeps its reason in the log" "${mod[@]}" "$API/mod/log?app=smoke-case"
+check "log: reject with the note" "version.reject 2.0.0 not a case" \
+    "$(jq -r '[.items[] | select(.action == "version.reject")][0] | "\(.action) \(.version) \(.detail.note)"' "$work/body")"
+call 200 "the log of the import" "${mod[@]}" "$API/mod/log?app=Smoke_Import"
+check "log: hand-over from the catalog account" "item.owner lilka-catalog smoke-dev" \
+    "$(jq -r '[.items[] | select(.action == "item.owner")][0] | "\(.action) \(.detail.from) \(.detail.to)"' "$work/body")"
+
+call 200 "a moderator hides an item with a reason" "${mod[@]}" "${json[@]}" -X PATCH "$API/apps/smoke-hello" \
+    -d '{"status":"hidden","note":"the source link is broken"}'
+check "the owner sees that a moderator hid it, and why" "true the source link is broken" \
+    "$(curl -sS "${user[@]}" "$API/users/smoke-dev/apps" | jq -r '.items[] | select(.slug == "smoke-hello") | "\(.mod_hidden) \(.hidden_note)"')"
+call 403 "the owner cannot bring back what a moderator hid" "${user[@]}" "${json[@]}" -X PATCH "$API/apps/smoke-hello" -d '{"status":"published"}'
+call 200 "the owner hiding it again" "${user[@]}" "${json[@]}" -X PATCH "$API/apps/smoke-hello" -d '{"status":"hidden"}'
+call 403 "does not unlock it" "${user[@]}" "${json[@]}" -X PATCH "$API/apps/smoke-hello" -d '{"status":"published"}'
+call 200 "the owner can still fix it" "${user[@]}" "${json[@]}" -X PATCH "$API/apps/smoke-hello" -d '{"sources_url":"https://github.com/smoke-dev/hello"}'
+call 200 "a moderator publishes it again" "${mod[@]}" "${json[@]}" -X PATCH "$API/apps/smoke-hello" -d '{"status":"published"}'
+check "and the lock is gone" "published false null" "$(jq -r '"\(.status) \(.mod_hidden) \(.hidden_note)"' "$work/body")"
+call 200 "the log of the item" "${mod[@]}" "$API/mod/log?app=smoke-hello"
+check "log: publish, hide with its note, the owner named; the owner's own edits are not logged" \
+    "item.publish item.hide the source link is broken smoke-dev 2" \
+    "$(jq -r '"\(.items[0].action) \(.items[1].action) \(.items[1].detail.note) \(.items[1].user_login) \([.items[] | select(.action == "item.hide" or .action == "item.publish")] | length)"' "$work/body")"
+call 200 "the owner hides and returns their own item" "${user[@]}" "${json[@]}" -X PATCH "$API/apps/smoke-hello" -d '{"status":"hidden"}'
+call 200 "as before" "${user[@]}" "${json[@]}" -X PATCH "$API/apps/smoke-hello" -d '{"status":"published"}'
+
+call 200 "detail: latest_version is the highest approved, not the newest approval" "${fan[@]}" "$API/apps/smoke-keep"
+check "latest_version of smoke-keep" 1.2.0 "$(jq -r .latest_version.version "$work/body")"
+race=$(for i in 1 2 3; do curl -s -o /dev/null -w '%{http_code}\n' "${admin[@]}" "${json[@]}" -X POST "$API/apps" \
+    -d '{"slug":"smoke-race","kind":"app","name":"r","short_description":"r","sources_url":"https://github.com/a/b"}' & done; wait)
+check "three creates of one slug at once: one 201, two 409, no 500" "201 409 409" "$(sort <<<"$race" | xargs)"
+
+call 201 "an author makes a draft" "${author[@]}" "${json[@]}" -X POST "$API/apps" \
+    -d '{"slug":"smoke-draft","kind":"app","name":"Draft","short_description":"by mistake","sources_url":"https://github.com/smoke-author/draft"}'
+call 201 "with an upload" "${author[@]}" -X POST "$API/apps/smoke-draft/versions" \
+    -F version=1.0.0 -F keira_version=1.0.0 -F entry_type=lua -F "entry=@$work/hello.lua"
+draft_prefix=$(prefix_of "$(jq -r .id "$work/body")")
+call 404 "nobody else deletes it" "${fan[@]}" "${json[@]}" -X DELETE "$API/apps/smoke-draft" -d '{"confirm":"smoke-draft"}'
+call 400 "deleting repeats the slug" "${author[@]}" "${json[@]}" -X DELETE "$API/apps/smoke-draft" -d '{"confirm":"smoke"}'
+call 200 "the author deletes the draft" "${author[@]}" "${json[@]}" -X DELETE "$API/apps/smoke-draft" -d '{"confirm":"smoke-draft"}'
+call 404 "it is gone" "${author[@]}" "$API/apps/smoke-draft"
+check "with its files" 0 "$(r2_list | grep -c "^$draft_prefix/" || true)"
+call 409 "an item that was approved is hidden, not deleted" "${keeper[@]}" "${json[@]}" -X DELETE "$API/apps/smoke-keep" -d '{"confirm":"smoke-keep"}'
+call 201 "the slug is free again" "${author[@]}" "${json[@]}" -X POST "$API/apps" \
+    -d '{"slug":"smoke-draft","kind":"app","name":"Draft","short_description":"again","sources_url":"https://github.com/smoke-author/draft"}'
+
+printf 'display.fill_screen(display.color565(255, 0, 0))\ndisplay.queue_draw()\n' > "$work/red.lua"
+call 201 "an upload with the wrong file" "${author[@]}" -X POST "$API/apps/smoke-draft/versions" \
+    -F version=1.0.0 -F keira_version=1.0.0 -F entry_type=lua -F "entry=@$work/red.lua;filename=hello.lua"
+wrong_id=$(jq -r .id "$work/body")
+wrong_prefix=$(prefix_of "$wrong_id")
+call 404 "nobody else withdraws it" "${fan[@]}" -X DELETE "$API/apps/smoke-draft/versions/$wrong_id"
+call 200 "the author withdraws it" "${author[@]}" -X DELETE "$API/apps/smoke-draft/versions/$wrong_id"
+call 404 "the processor finds nothing to scan" "${scanner[@]}" "$API/scan/versions/$wrong_id"
+check "its files are gone" 0 "$(r2_list | grep -c "^$wrong_prefix/" || true)"
+call 201 "the same number again" "${author[@]}" -X POST "$API/apps/smoke-draft/versions" \
+    -F version=1.0.0 -F keira_version=1.0.0 -F entry_type=lua -F "entry=@$work/hello.lua"
+retry_id=$(jq -r .id "$work/body")
+call 200 "processor clears it" "${scanner[@]}" -X POST "$API/scan/versions/$retry_id" -F result=clean
+call 200 "a moderator rejects it" "${mod[@]}" "${json[@]}" -X POST "$API/mod/versions/$retry_id/reject" -d '{"note":"add an icon"}'
+call 409 "a rejected version is not withdrawn" "${author[@]}" -X DELETE "$API/apps/smoke-draft/versions/$retry_id"
+call 201 "a rejected number can be sent again" "${author[@]}" -X POST "$API/apps/smoke-draft/versions" \
+    -F version=1.0.0 -F keira_version=1.0.0 -F entry_type=lua -F "entry=@$work/hello.lua" \
+    -F "icon=@$work/icon.png" -F "files=@$work/data.txt"
+fixed_id=$(jq -r .id "$work/body")
+check "one row per number: the rejected one is replaced" 1 \
+    "$(curl -sS "${author[@]}" "$API/apps/smoke-draft" | jq '[.versions[] | select(.version == "1.0.0")] | length')"
+call 200 "the rejection stays in the log" "${mod[@]}" "$API/mod/log?user=smoke-author"
+check "log of the author: the rejection with its reason" "version.reject 1.0.0 add an icon" \
+    "$(jq -r '[.items[] | select(.action == "version.reject")][0] | "\(.action) \(.version) \(.detail.note)"' "$work/body")"
+approve "$fixed_id"
+call 409 "an approved version is not withdrawn" "${author[@]}" -X DELETE "$API/apps/smoke-draft/versions/$fixed_id"
+call 409 "nor is its item deleted" "${author[@]}" "${json[@]}" -X DELETE "$API/apps/smoke-draft" -d '{"confirm":"smoke-draft"}'
+
+call 201 "a new version keeps the icon and the file, and changes the code" "${author[@]}" -X POST "$API/apps/smoke-draft/versions" \
+    -F version=1.1.0 -F keira_version=1.0.0 -F entry_type=lua -F "entry=@$work/red.lua;filename=hello.lua" \
+    -F keep_icon=1 -F keep_files=1
+next_id=$(jq -r .id "$work/body")
+check "the version says what it kept" "data.txt,icon.png" "$(jq -r '.kept | sort | join(",")' "$work/body")"
+call 200 "processor clears it" "${scanner[@]}" -X POST "$API/scan/versions/$next_id" -F result=clean
+call 200 "the queue compares it with the approved version" "${mod[@]}" "$API/mod/queue"
+check "queue: previous is 1.0.0, and hello.lua differs from it" "1.0.0 different" \
+    "$(jq -r --argjson id "$next_id" '.items[] | select(.version.id == $id) |
+        "\(.previous.version) \(if ([.version.checksums[] | select(.name == "hello.lua")][0].sha256) == ([.previous.checksums[] | select(.name == "hello.lua")][0].sha256) then "same" else "different" end)"' "$work/body")"
+call 200 "versions waiting for the scan" "${mod[@]}" "$API/mod/queue?status=pending_scan"
+check "queue: a first version has nothing to compare with" "1.0.0 null" \
+    "$(jq -r '[.items[] | select(.app.slug == "smoke-case")][0] | "\(.version.version) \(.previous)"' "$work/body")"
+
 location=$(curl -sS -o /dev/null -w '%{redirect_url}' "$API/auth/login?return=http://localhost:8000/")
 state=$(printf '%s' "$location" | sed -n 's/.*[?&]state=\([^&]*\).*/\1/p')
 check "OAuth state is a signed token, not a stored row" ok "$(printf '%s' "$state" | grep -qE '^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$' && echo ok || echo "$state")"
@@ -379,6 +472,8 @@ call 200 "troll rates" -H "Authorization: Bearer troll-token" "${json[@]}" -X PU
 call 200 "moderator bans the troll" "${mod[@]}" -X POST "$API/mod/users/smoke-troll/ban"
 trolls=$(npx wrangler d1 execute lilka-catalog --local --json --command "SELECT COUNT(*) AS n FROM ratings WHERE user_id = 5" 2>/dev/null | jq -r '.[0].results[0].n')
 check "a ban removes the user's ratings" 0 "$trolls"
+call 200 "a ban is in the log" "${mod[@]}" "$API/mod/log?user=smoke-troll"
+check "log: the troll's ban" "user.ban smoke-troll" "$(jq -r '.items[0] | "\(.action) \(.user_login)"' "$work/body")"
 
 # --- roles and permissions (permissions.ts) ------------------------------
 npx wrangler d1 execute lilka-catalog --local --command "

@@ -6,6 +6,11 @@ export function fail(status: 400 | 401 | 403 | 404 | 409 | 413 | 429 | 502 | 503
     throw new HTTPException(status, { message });
 }
 
+/** D1's error for a UNIQUE constraint: two requests raced for the same slug or version. */
+export function isUniqueViolation(error: unknown): boolean {
+    return error instanceof Error && /UNIQUE constraint failed/i.test(error.message);
+}
+
 export function requireUser(c: Context<AppEnv>): User {
     const user = c.get('user');
     if (!user) fail(401, 'sign in required');

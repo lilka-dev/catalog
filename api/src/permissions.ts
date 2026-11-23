@@ -53,6 +53,8 @@ export const PERMISSIONS = [
     'roles.main_admin',
     /** No per-account limits on items, uploads and changes. */
     'limits.exempt',
+    /** The moderation log: what staff did, by whom and when. */
+    'log',
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -64,6 +66,7 @@ const MODERATOR: readonly Permission[] = [
     'users.manage',
     'users.ban',
     'limits.exempt',
+    'log',
 ];
 const ADMIN: readonly Permission[] = [...MODERATOR, 'items.delete', 'items.import', 'roles.moderator'];
 const MAIN_ADMIN: readonly Permission[] = [...ADMIN, 'roles.admin', 'roles.main_admin'];

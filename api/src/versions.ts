@@ -8,6 +8,7 @@ import {
     entryTypeOf,
     fail,
     isImageName,
+    isUniqueViolation,
     parseJsonArray,
     sha256Hex,
     type EntryType,
@@ -151,10 +152,14 @@ export async function createVersion(
         if (!isImageName(image.name)) fail(400, `"${image.name}" must be a PNG or JPEG`);
     }
 
-    const duplicate = await env.DB.prepare(`SELECT 1 FROM versions WHERE app_id = ? AND version = ?`)
+    // A rejected or infected upload can be sent again under the same number:
+    // its files are gone, and the reason stays in the moderation log
+    const duplicate = await env.DB.prepare(`SELECT id, status, storage_prefix FROM versions WHERE app_id = ? AND version = ?`)
         .bind(app.id, input.version)
-        .first();
-    if (duplicate) fail(409, `version ${input.version} already exists`);
+        .first<{ id: number; status: string; storage_prefix: string }>();
+    const replaces =
+        duplicate && !imported && (duplicate.status === 'rejected' || duplicate.status === 'infected') ? duplicate : null;
+    if (duplicate && !replaces) fail(409, `version ${input.version} already exists`);
 
     // Devices get the highest approved version (promoteVersion), so a new one
     // has to be higher than every earlier one that can still be approved.
@@ -206,29 +211,47 @@ export async function createVersion(
         (entry) => typeof entry.location === 'string' && files.includes(entry.location) && kept.includes(entry.location),
     );
 
+    // Everything is checked: only now is the rejected upload of this number
+    // dropped. Its folder is the one this version writes to, so it is
+    // emptied first (the rejection already started that)
+    if (replaces) {
+        await env.DB.prepare(`DELETE FROM versions WHERE id = ? AND status IN ('rejected', 'infected')`)
+            .bind(replaces.id)
+            .run();
+        await deleteVersionFiles(env, replaces.storage_prefix);
+    }
+
     // The id keeps the folder unique even if a slug is ever reused after a
     // delete; the slug and version make it readable in the R2 dashboard
     const storagePrefix = `${app.id}-${app.slug}/v/${input.version}`;
-    const row = await env.DB.prepare(
-        `INSERT INTO versions (app_id, version, keira_version, entry_type, entry_file, files, files_meta, icon,
-                               screenshots, changelog, auto_approve, storage_prefix)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
-    )
-        .bind(
-            app.id,
-            input.version,
-            input.keiraVersion,
-            input.entryType,
-            input.entry?.name ?? null,
-            JSON.stringify(files),
-            keptMeta.length ? JSON.stringify(keptMeta) : null,
-            icon,
-            JSON.stringify(screenshots),
-            input.changelog,
-            imported ? 1 : 0,
-            storagePrefix,
+    let row: { id: number } | null;
+    try {
+        row = await env.DB.prepare(
+            `INSERT INTO versions (app_id, version, keira_version, entry_type, entry_file, files, files_meta, icon,
+                                   screenshots, changelog, auto_approve, storage_prefix, kept)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
         )
-        .first<{ id: number }>();
+            .bind(
+                app.id,
+                input.version,
+                input.keiraVersion,
+                input.entryType,
+                input.entry?.name ?? null,
+                JSON.stringify(files),
+                keptMeta.length ? JSON.stringify(keptMeta) : null,
+                icon,
+                JSON.stringify(screenshots),
+                input.changelog,
+                imported ? 1 : 0,
+                storagePrefix,
+                kept.length ? JSON.stringify(kept) : null,
+            )
+            .first<{ id: number }>();
+    } catch (error) {
+        // Two uploads of the same number at once: the check above let both through
+        if (isUniqueViolation(error)) fail(409, `version ${input.version} already exists`);
+        throw error;
+    }
     const versionId = row!.id;
 
     try {

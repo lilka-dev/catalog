@@ -6,6 +6,7 @@ import {
     ratingSummary,
     findApp,
     kindDir,
+    latestApproved,
     readKind,
     readLicense,
     readLocalized,
@@ -29,6 +30,7 @@ import {
 } from './permissions';
 import { LOOSE_NAME_RE, dispatch, fail, parseJsonArray, readJson } from './util';
 import { createVersion, deleteVersionFiles, objectKey, promoteVersion, readVersionForm } from './versions';
+import { log, logStatement } from './log';
 
 /* --------------------------------------------------------- moderators ------ */
 
@@ -39,6 +41,8 @@ moderation.use('*', async (c, next) => {
     requireStaff(c);
     await next();
 });
+
+moderation.route('/log', log);
 
 /** Everything that waits for a human, oldest first. */
 moderation.get('/queue', async (c) => {
@@ -63,6 +67,8 @@ moderation.get('/queue', async (c) => {
                 owner_login: string;
             }
         >();
+    // The version devices get now, so the reviewer sees what changed: one query
+    const latest = await latestApproved(c.env, [...new Set(results.map((v) => v.app_id))]);
     return c.json({
         items: results.map((v) => ({
             app: {
@@ -75,18 +81,28 @@ moderation.get('/queue', async (c) => {
                 unclaimed: v.owner_id === 0,
             },
             version: serializeVersion(c.env, v.slug, v, true),
+            previous: (() => {
+                const prev = latest.get(v.app_id);
+                return prev && prev.id !== v.id ? serializeVersion(c.env, v.slug, prev, false) : null;
+            })(),
         })),
     });
 });
 
 async function loadVersion(c: Parameters<MiddlewareHandler<AppEnv>>[0], id: string) {
     const row = await c.env.DB.prepare(
-        `SELECT v.*, a.slug, a.status AS app_status FROM versions v JOIN apps a ON a.id = v.app_id WHERE v.id = ?`,
+        `SELECT v.*, a.slug, a.status AS app_status, a.owner_id, u.login AS owner_login
+           FROM versions v JOIN apps a ON a.id = v.app_id JOIN users u ON u.id = a.owner_id WHERE v.id = ?`,
     )
         .bind(Number(id))
-        .first<VersionRow & { slug: string; app_status: string }>();
+        .first<VersionRow & { slug: string; app_status: string; owner_id: number; owner_login: string }>();
     if (!row) fail(404, 'version not found');
     return row;
+}
+
+/** Whose upload it is, for the log: the user's Details then show the reviews of their items. */
+function ownerOf(row: { owner_id: number; owner_login: string }) {
+    return { id: row.owner_id, login: row.owner_login };
 }
 
 moderation.post('/versions/:id/approve', async (c) => {
@@ -104,6 +120,13 @@ moderation.post('/versions/:id/approve', async (c) => {
               WHERE id = ?`,
         ).bind(moderator.id, note ?? null, version.id),
         promote.statement,
+        logStatement(c.env, moderator, {
+            action: 'version.approve',
+            app: version,
+            user: ownerOf(version),
+            version,
+            detail: { ...(note ? { note } : {}), ...(promote.latest ? {} : { latest: false }) },
+        }),
     ]);
     // Also when an older version was approved: it joins versions.json
     c.executionCtx.waitUntil(dispatch(c.env, c.env.CATALOG_REPO, 'api-sync', { slug: version.slug }));
@@ -116,12 +139,25 @@ moderation.post('/versions/:id/reject', async (c) => {
     if (version.status === 'approved') fail(409, 'version is already approved; hide the app instead');
     const { note } = await readJson<{ note?: unknown }>(c);
     if (typeof note !== 'string' || !note.trim()) fail(400, 'note with the reason is required');
-    await c.env.DB.prepare(`UPDATE versions SET status = 'rejected', reviewed_by = ?, review_note = ? WHERE id = ?`)
-        .bind(moderator.id, note.trim(), version.id)
-        .run();
+    await c.env.DB.batch([
+        c.env.DB.prepare(`UPDATE versions SET status = 'rejected', reviewed_by = ?, review_note = ? WHERE id = ?`).bind(
+            moderator.id,
+            note.trim(),
+            version.id,
+        ),
+        // The row goes if the author uploads this number again; the reason stays here
+        logStatement(c.env, moderator, {
+            action: 'version.reject',
+            app: version,
+            user: ownerOf(version),
+            version,
+            detail: { note: note.trim() },
+        }),
+    ]);
     // The row keeps the reason for the author; the files are never served
-    // again, and keeping them would let rejected re-uploads fill the bucket
-    c.executionCtx.waitUntil(deleteVersionFiles(c.env, version.storage_prefix));
+    // again, and keeping them would let rejected re-uploads fill the bucket.
+    // Awaited: an upload of the same number again reuses the folder
+    await deleteVersionFiles(c.env, version.storage_prefix);
     return c.json({ ok: true });
 });
 
@@ -145,8 +181,24 @@ moderation.get('/reports', async (c) => {
 });
 
 moderation.post('/reports/:id/resolve', async (c) => {
-    requirePermission(c, 'reports');
-    await c.env.DB.prepare(`UPDATE reports SET resolved = 1 WHERE id = ?`).bind(Number(c.req.param('id'))).run();
+    const moderator = requirePermission(c, 'reports');
+    const report = await c.env.DB.prepare(
+        `SELECT r.id, r.reason, r.resolved, a.slug, u.id AS reporter_id, u.login AS reporter
+           FROM reports r JOIN apps a ON a.id = r.app_id JOIN users u ON u.id = r.user_id WHERE r.id = ?`,
+    )
+        .bind(Number(c.req.param('id')))
+        .first<{ id: number; reason: string; resolved: number; slug: string; reporter_id: number; reporter: string }>();
+    if (!report) fail(404, 'report not found');
+    if (report.resolved) return c.json({ ok: true });
+    await c.env.DB.batch([
+        c.env.DB.prepare(`UPDATE reports SET resolved = 1 WHERE id = ?`).bind(report.id),
+        logStatement(c.env, moderator, {
+            action: 'report.resolve',
+            app: report,
+            user: { id: report.reporter_id, login: report.reporter },
+            detail: { reason: report.reason.slice(0, 300) },
+        }),
+    ]);
     return c.json({ ok: true });
 });
 
@@ -249,7 +301,7 @@ moderation.get('/apps', async (c) => {
  * The body must repeat the slug, so a stray request cannot delete anything.
  */
 moderation.delete('/apps/:slug', async (c) => {
-    requirePermission(c, 'items.delete');
+    const admin = requirePermission(c, 'items.delete');
     const slug = c.req.param('slug');
     const { confirm } = await readJson<{ confirm?: unknown }>(c).catch(() => ({ confirm: undefined }));
     if (confirm !== slug) fail(400, 'confirm must repeat the slug');
@@ -262,6 +314,12 @@ moderation.delete('/apps/:slug', async (c) => {
         // latest_version_id points into versions; clear it before the cascade
         c.env.DB.prepare(`UPDATE apps SET latest_version_id = NULL WHERE id = ?`).bind(app.id),
         c.env.DB.prepare(`DELETE FROM apps WHERE id = ?`).bind(app.id),
+        logStatement(c.env, admin, {
+            action: 'item.delete',
+            app,
+            user: app.owner_id ? { id: app.owner_id, login: app.owner_login } : null,
+            detail: { kind: app.kind, status: app.status, versions: results.length },
+        }),
     ]);
     c.executionCtx.waitUntil(
         (async () => {
@@ -344,28 +402,37 @@ moderation.get('/users/:login', async (c) => {
 
 /** What moderators may change about a user; the profile itself comes from GitHub at every sign-in. */
 moderation.patch('/users/:login', async (c) => {
-    requirePermission(c, 'users.manage');
+    const actor = requirePermission(c, 'users.manage');
     const user = await findUser(c);
     const body = await readJson<{ trusted?: unknown; note?: unknown }>(c);
     const sets: string[] = [];
     const params: unknown[] = [];
+    const entries: D1PreparedStatement[] = [];
+    const target = { id: user.id, login: user.login };
     if (body.trusted !== undefined) {
         if (typeof body.trusted !== 'boolean') fail(400, 'trusted must be true or false');
         if (user.id === 0) fail(409, 'the catalog account is not a person');
         sets.push('trusted = ?');
         params.push(body.trusted ? 1 : 0);
+        if (body.trusted !== !!user.trusted) {
+            entries.push(logStatement(c.env, actor, { action: 'user.trust', user: target, detail: { trusted: body.trusted } }));
+        }
     }
     if (body.note !== undefined) {
         if (body.note !== null && (typeof body.note !== 'string' || body.note.length > 2000)) {
             fail(400, 'note must be text up to 2000 characters, or null');
         }
+        const note = typeof body.note === 'string' && body.note.trim() ? body.note.trim() : null;
         sets.push('mod_note = ?');
-        params.push(typeof body.note === 'string' && body.note.trim() ? body.note.trim() : null);
+        params.push(note);
+        // That it changed, not the text: the note stays on the user's page
+        if (note !== user.mod_note) entries.push(logStatement(c.env, actor, { action: 'user.note', user: target }));
     }
     if (!sets.length) fail(400, 'nothing to update');
-    await c.env.DB.prepare(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`)
-        .bind(...params, user.id)
-        .run();
+    await c.env.DB.batch([
+        c.env.DB.prepare(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`).bind(...params, user.id),
+        ...entries,
+    ]);
     return c.json({ ok: true });
 });
 
@@ -377,7 +444,9 @@ moderation.post('/users/:login/sign-out', async (c) => {
         fail(403, 'only someone with a higher role can do this to them');
     }
     const result = await c.env.DB.prepare(`DELETE FROM sessions WHERE user_id = ?`).bind(user.id).run();
-    return c.json({ ok: true, sessions: result.meta.changes ?? 0 });
+    const sessions = result.meta.changes ?? 0;
+    await logStatement(c.env, actor, { action: 'user.sign_out', user, detail: { sessions } }).run();
+    return c.json({ ok: true, sessions });
 });
 
 /** Removes every rating the user gave, e.g. a brigade; the averages follow with the next mirror run. */
@@ -388,34 +457,42 @@ moderation.delete('/users/:login/ratings', async (c) => {
         fail(403, 'only someone with a higher role can do this to them');
     }
     const result = await c.env.DB.prepare(`DELETE FROM ratings WHERE user_id = ?`).bind(user.id).run();
-    return c.json({ ok: true, ratings: result.meta.changes ?? 0 });
+    const ratings = result.meta.changes ?? 0;
+    await logStatement(c.env, actor, { action: 'user.ratings', user, detail: { ratings } }).run();
+    return c.json({ ok: true, ratings });
 });
 
 /** A ban also hides every app of the user, drops their ratings and ends their sessions. */
 moderation.post('/users/:login/ban', async (c) => {
-    requirePermission(c, 'users.ban');
+    const actor = requirePermission(c, 'users.ban');
     const user = await findUser(c);
     // Banning the catalog account would hide every imported app at once
     if (user.id === 0) fail(409, 'the catalog account owns imported apps and cannot be banned');
     // A ban is not a way around the role rules: whoever may take the role away does that first
     if (isStaff(user.role)) fail(409, `take the ${user.role} role away first (Roles)`);
-    await c.env.DB.batch([
+    if (user.role === 'banned') return c.json({ ok: true });
+    // mod_hidden is left as it is: an item a moderator hid stays theirs to bring back after an unban
+    const [, hidden] = await c.env.DB.batch([
         c.env.DB.prepare(`UPDATE users SET role = 'banned' WHERE id = ?`).bind(user.id),
-        c.env.DB.prepare(`UPDATE apps SET status = 'hidden', updated_at = datetime('now') WHERE owner_id = ?`).bind(
+        c.env.DB.prepare(`UPDATE apps SET status = 'hidden', updated_at = datetime('now') WHERE owner_id = ? AND status != 'hidden'`).bind(
             user.id,
         ),
         c.env.DB.prepare(`DELETE FROM ratings WHERE user_id = ?`).bind(user.id),
         c.env.DB.prepare(`DELETE FROM sessions WHERE user_id = ?`).bind(user.id),
     ]);
+    await logStatement(c.env, actor, { action: 'user.ban', user, detail: { hidden: hidden.meta.changes ?? 0 } }).run();
     c.executionCtx.waitUntil(dispatch(c.env, c.env.CATALOG_REPO, 'api-sync', {}));
     return c.json({ ok: true });
 });
 
 moderation.post('/users/:login/unban', async (c) => {
-    requirePermission(c, 'users.ban');
-    await c.env.DB.prepare(`UPDATE users SET role = 'user' WHERE login = ? COLLATE NOCASE AND role = 'banned'`)
-        .bind(c.req.param('login'))
-        .run();
+    const actor = requirePermission(c, 'users.ban');
+    const user = await findUser(c);
+    if (user.role !== 'banned') return c.json({ ok: true });
+    await c.env.DB.batch([
+        c.env.DB.prepare(`UPDATE users SET role = 'user' WHERE id = ? AND role = 'banned'`).bind(user.id),
+        logStatement(c.env, actor, { action: 'user.unban', user }),
+    ]);
     return c.json({ ok: true });
 });
 
@@ -452,6 +529,7 @@ moderation.put('/users/:login/role', async (c) => {
     if (refusal) fail(refusal.status, refusal.message);
     if (role === user.role) return c.json({ ok: true, role });
     await c.env.DB.batch([
+        logStatement(c.env, actor, { action: 'user.role', user, detail: { from: user.role, to: role } }),
         role === 'user'
             ? c.env.DB.prepare(`DELETE FROM staff WHERE user_id = ?`).bind(user.id)
             : c.env.DB.prepare(
@@ -475,7 +553,7 @@ moderation.put('/users/:login/role', async (c) => {
  * were already reviewed as pull requests.
  */
 moderation.post('/import', async (c) => {
-    requirePermission(c, 'items.import');
+    const admin = requirePermission(c, 'items.import');
     let form: FormData;
     try {
         form = await c.req.formData();
@@ -567,9 +645,19 @@ moderation.post('/import', async (c) => {
                   !!entry && typeof entry === 'object' && names.has((entry as { location?: unknown }).location as string),
           )
         : [];
-    await c.env.DB.prepare(`UPDATE versions SET changelog_en = ?, files_meta = ? WHERE id = ?`)
-        .bind(changelog.uk && changelog.en ? changelog.en : null, filesMeta.length ? JSON.stringify(filesMeta) : null, versionId)
-        .run();
+    await c.env.DB.batch([
+        c.env.DB.prepare(`UPDATE versions SET changelog_en = ?, files_meta = ? WHERE id = ?`).bind(
+            changelog.uk && changelog.en ? changelog.en : null,
+            filesMeta.length ? JSON.stringify(filesMeta) : null,
+            versionId,
+        ),
+        logStatement(c.env, admin, {
+            action: 'item.import',
+            app: { slug: meta.slug },
+            version: { id: versionId, version: version.version },
+            detail: existing ? { replaced: true } : null,
+        }),
+    ]);
     c.executionCtx.waitUntil(dispatch(c.env, c.env.SCAN_REPO, 'scan-version', { version_id: versionId }));
     return c.json({ slug: meta.slug, version_id: versionId }, 201);
 });
