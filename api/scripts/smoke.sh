@@ -19,13 +19,14 @@ sha() { printf '%s' "$1" | shasum -a 256 | cut -d' ' -f1; }
 npx wrangler d1 execute lilka-catalog --local --command "
 DELETE FROM sessions; DELETE FROM ratings; DELETE FROM reports; DELETE FROM staff; UPDATE apps SET latest_version_id = NULL; DELETE FROM versions; DELETE FROM apps; DELETE FROM users WHERE id != 0;
 INSERT INTO users (id, login, role, bio, blog) VALUES (1, 'smoke-dev', 'user', 'Makes <b>tests</b>', 'https://example.com/');
-INSERT INTO users (id, login, role) VALUES (2, 'smoke-mod', 'moderator'), (3, 'smoke-fan', 'user'), (7, 'smoke-admin', 'user'), (8, 'smoke-boss', 'user');
+INSERT INTO users (id, login, role) VALUES (2, 'smoke-mod', 'moderator'), (3, 'smoke-fan', 'user'), (7, 'smoke-admin', 'user'), (8, 'smoke-boss', 'user'), (11, 'smoke-keeper', 'user');
 INSERT INTO staff (user_id, role) VALUES (2, 'moderator'), (7, 'admin'), (8, 'main_admin');
 INSERT INTO sessions VALUES ('$(sha $USER_TOKEN)', 1, datetime('now', '+1 day'));
 INSERT INTO sessions VALUES ('$(sha $MOD_TOKEN)', 2, datetime('now', '+1 day'));
 INSERT INTO sessions VALUES ('$(sha fan-token)', 3, datetime('now', '+1 day'));
 INSERT INTO sessions VALUES ('$(sha admin-token)', 7, datetime('now', '+1 day'));
-INSERT INTO sessions VALUES ('$(sha boss-token)', 8, datetime('now', '+1 day'));" >/dev/null
+INSERT INTO sessions VALUES ('$(sha boss-token)', 8, datetime('now', '+1 day'));
+INSERT INTO sessions VALUES ('$(sha keeper-token)', 11, datetime('now', '+1 day'));" >/dev/null
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
@@ -304,6 +305,64 @@ jq -e '.documents["authors_info.json"] | fromjson | .authors[] | select(.id == "
 check "authors_info.json: one author per login, with the profile" ok "$ai"
 latest=$(npx wrangler d1 execute lilka-catalog --local --json --command "SELECT latest_version_id FROM apps WHERE slug = 'smoke-hello'" 2>/dev/null | jq -r '.[0].results[0].latest_version_id')
 check "latest_version_id is the approved version, not the infected one" "$version_id" "$latest"
+
+# --- new versions: keep_* and version order --------------------------------
+# smoke-keeper's own item: the upload limits of smoke-dev and the item
+# limit of smoke-fan are used up by the checks above
+keeper=(-H "Authorization: Bearer keeper-token")
+approve() { # version id
+    call 200 "processor clears $1" "${scanner[@]}" -X POST "$API/scan/versions/$1" -F result=clean
+    call 200 "moderator approves $1" "${mod[@]}" "${json[@]}" -X POST "$API/mod/versions/$1/approve" -d '{}'
+}
+latest_of() { npx wrangler d1 execute lilka-catalog --local --json --command "SELECT latest_version_id FROM apps WHERE slug = '$1'" 2>/dev/null | jq -r '.[0].results[0].latest_version_id'; }
+printf 'level data\n' > "$work/data.txt"
+call 201 "create an item to version" "${keeper[@]}" "${json[@]}" -X POST "$API/apps" \
+    -d '{"slug":"smoke-keep","kind":"app","name":"Keep","short_description":"Versions","sources_url":"https://github.com/smoke-keeper/keep","license":"MIT"}'
+call 409 "keep_* needs an approved version" "${keeper[@]}" -X POST "$API/apps/smoke-keep/versions" \
+    -F version=1.0.0 -F keira_version=1.0.0 -F entry_type=lua -F "entry=@$work/hello.lua" -F keep_icon=1
+call 201 "first version with icon, screenshots and a file" "${keeper[@]}" -X POST "$API/apps/smoke-keep/versions" \
+    -F version=1.0.0 -F keira_version=1.0.0 -F entry_type=lua -F changelog='Перша' -F "entry=@$work/hello.lua" \
+    -F "icon=@$work/icon.png" -F "screenshots=@$work/icon.png;filename=shot.png" \
+    -F "screenshots=@$work/icon.png;filename=shot2.png" -F "files=@$work/data.txt"
+keep_v1=$(jq -r .id "$work/body")
+approve "$keep_v1"
+call 201 "next version keeps icon, screenshots and files" "${keeper[@]}" -X POST "$API/apps/smoke-keep/versions" \
+    -F version=1.1.0 -F keira_version=1.1.0 -F entry_type=lua -F changelog='Друга' -F "entry=@$work/hello.lua" \
+    -F keep_icon=1 -F keep_screenshots=1 -F keep_files=1 -F "screenshots=@$work/icon.png;filename=shot3.png"
+keep_v2=$(jq -r .id "$work/body")
+check "kept icon, screenshots in order plus the new one, kept file" "icon.png shot.png,shot2.png,shot3.png data.txt" \
+    "$(jq -r '"\(.icon.name) \([.screenshots[].name] | join(",")) \([.files[].name] | join(","))"' "$work/body")"
+call 200 "kept file is in the new version" "${keeper[@]}" "$API/files/smoke-keep/$keep_v2/data.txt"
+cmp -s "$work/body" "$work/data.txt" && kb=ok || kb=differs
+check "kept file has the same bytes" ok "$kb"
+check "kept files are copied into the new version's folder" 4 \
+    "$(r2_list | grep -cE "^$(prefix_of "$keep_v2")/(icon|shot|shot2|data)\.(png|txt)$" || true)"
+call 409 "a lower version number is refused" "${keeper[@]}" -X POST "$API/apps/smoke-keep/versions" \
+    -F version=1.0.5 -F keira_version=1.0.0 -F entry_type=lua -F "entry=@$work/hello.lua"
+call 400 "kept screenshots count toward the limit" "${keeper[@]}" -X POST "$API/apps/smoke-keep/versions" \
+    -F version=1.2.0 -F keira_version=1.0.0 -F entry_type=lua -F "entry=@$work/hello.lua" -F keep_screenshots=1 \
+    $(for i in 1 2 3 4 5 6; do printf -- '-F screenshots=@%s;filename=n%s.png ' "$work/icon.png" "$i"; done)
+call 201 "a version without keep_* starts empty" "${keeper[@]}" -X POST "$API/apps/smoke-keep/versions" \
+    -F version=1.2.0 -F keira_version=1.1.0 -F entry_type=lua -F changelog='Третя' -F "entry=@$work/hello.lua"
+keep_v3=$(jq -r .id "$work/body")
+check "no icon unless kept" "null 0" "$(jq -r '"\(.icon) \(.screenshots | length)"' "$work/body")"
+# Approved out of order: 1.2.0 first, then 1.1.0
+approve "$keep_v3"
+call 200 "processor clears the older one" "${scanner[@]}" -X POST "$API/scan/versions/$keep_v2" -F result=clean
+call 200 "approve the older version last" "${mod[@]}" "${json[@]}" -X POST "$API/mod/versions/$keep_v2/approve" -d '{}'
+check "the answer says it did not become the latest" false "$(jq -r .latest "$work/body")"
+check "the highest approved version stays the latest" "$keep_v3" "$(latest_of smoke-keep)"
+call 200 "listing.json with the latest version's facts" "${mirror[@]}" "$API/catalog/apps/listing.json"
+check "listing: version, Keira version, entry type, license" "1.2.0 1.1.0 lua MIT" \
+    "$(jq -r '.items[] | select(.path == "smoke-keep") | "\(.version) \(.keira_version) \(.entry_type) \(.license)"' "$work/body")"
+call 200 "versions.json" "${mirror[@]}" "$API/catalog/apps/smoke-keep/versions.json"
+check "versions.json: every approved version, highest first, with changelogs" "1.2.0 1.2.0,1.1.0,1.0.0 Третя" \
+    "$(jq -r '"\(.latest) \([.versions[].version] | join(",")) \(.versions[0].localization.uk.changelog)"' "$work/body")"
+call 200 "export with versions.json" "${mirror[@]}" "$API/catalog/export.json"
+check "export carries versions.json" ok \
+    "$(jq -e '.documents["apps/smoke-keep/versions.json"] | fromjson | .versions | length == 3' "$work/body" >/dev/null && echo ok || echo missing)"
+check "index.json keeps the fields Keira knows" ok \
+    "$(jq -e '.documents["apps/smoke-keep/index.json"] | fromjson | (has("version") or has("license")) | not' "$work/body" >/dev/null && echo ok || echo changed)"
 location=$(curl -sS -o /dev/null -w '%{redirect_url}' "$API/auth/login?return=http://localhost:8000/")
 state=$(printf '%s' "$location" | sed -n 's/.*[?&]state=\([^&]*\).*/\1/p')
 check "OAuth state is a signed token, not a stored row" ok "$(printf '%s' "$state" | grep -qE '^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$' && echo ok || echo "$state")"

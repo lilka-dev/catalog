@@ -28,7 +28,7 @@ import {
     roleChangeRefusal,
 } from './permissions';
 import { LOOSE_NAME_RE, dispatch, fail, parseJsonArray, readJson } from './util';
-import { createVersion, deleteVersionFiles, objectKey, readVersionForm } from './versions';
+import { createVersion, deleteVersionFiles, objectKey, promoteVersion, readVersionForm } from './versions';
 
 /* --------------------------------------------------------- moderators ------ */
 
@@ -96,21 +96,18 @@ moderation.post('/versions/:id/approve', async (c) => {
     if (version.status !== 'pending_review') fail(409, `version is ${version.status}, not pending_review`);
     const { note } = await readJson<{ note?: string }>(c).catch(() => ({ note: undefined }));
 
+    // A hidden app stays hidden: approving a version is not a decision to republish it
+    const promote = await promoteVersion(c.env, version);
     await c.env.DB.batch([
         c.env.DB.prepare(
             `UPDATE versions SET status = 'approved', approved_at = datetime('now'), reviewed_by = ?, review_note = ?
               WHERE id = ?`,
         ).bind(moderator.id, note ?? null, version.id),
-        // A hidden app stays hidden: approving a version is not a decision to republish it
-        c.env.DB.prepare(
-            `UPDATE apps SET status = CASE WHEN status = 'hidden' THEN 'hidden' ELSE 'published' END,
-                             latest_version_id = ?, published_at = COALESCE(published_at, datetime('now')),
-                             updated_at = datetime('now')
-              WHERE id = ?`,
-        ).bind(version.id, version.app_id),
+        promote.statement,
     ]);
+    // Also when an older version was approved: it joins versions.json
     c.executionCtx.waitUntil(dispatch(c.env, c.env.CATALOG_REPO, 'api-sync', { slug: version.slug }));
-    return c.json({ ok: true });
+    return c.json({ ok: true, latest: promote.latest });
 });
 
 moderation.post('/versions/:id/reject', async (c) => {
@@ -715,16 +712,7 @@ scan.post('/versions/:id', async (c) => {
               WHERE id = ?`,
         ).bind(status, detail, iconMin, pkg, security, status, version.id),
     ];
-    if (status === 'approved') {
-        statements.push(
-            c.env.DB.prepare(
-                `UPDATE apps SET status = CASE WHEN status = 'hidden' THEN 'hidden' ELSE 'published' END,
-                                 latest_version_id = ?, published_at = COALESCE(published_at, datetime('now')),
-                                 updated_at = datetime('now')
-                  WHERE id = ?`,
-            ).bind(version.id, version.app_id),
-        );
-    }
+    if (status === 'approved') statements.push((await promoteVersion(c.env, version)).statement);
     await c.env.DB.batch(statements);
     if (status === 'approved') {
         c.executionCtx.waitUntil(dispatch(c.env, c.env.CATALOG_REPO, 'api-sync', { slug: version.slug }));

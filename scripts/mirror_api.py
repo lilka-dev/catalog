@@ -10,6 +10,12 @@ for file copy of it:
     <dir>/<id>/index.json, index_short.json, package.zip, static/<file>
     authors.json
 
+and adds what only the website uses, made from the same documents:
+
+    <dir>/<id>/index.html   the item's link with a preview for chats, which
+                            forwards to the item on the site
+    feed.xml                Atom feed of the latest new and updated items
+
 Every request to the API counts against the Worker's daily limit, so the copy
 is cheap:
 
@@ -24,6 +30,10 @@ Any failed download fails the whole run, so Pages never gets a half catalog.
 
 Only this job may read /catalog: it sends MIRROR_SECRET, which the API checks.
 
+It also works out which items are new or have a new version compared with
+the live mirror, for scripts/announce.py (workflow output `announce`, or
+--announce-out FILE).
+
 Usage:
     MIRROR_SECRET=... python3 scripts/mirror_api.py --api https://...workers.dev --out build [--skip-unchanged]
 """
@@ -32,12 +42,17 @@ import argparse
 import json
 import os
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
+from html import escape
 from urllib.parse import quote, unquote
 
 import requests
 
 STATE_FILE = "mirror-state.json"
+DIRS = ("apps", "wallpapers", "mods")
+SITE_NAME = "Lilka Apps & Mods"
+FEED_SIZE = 50
 
 
 def path_url(base, path):
@@ -70,6 +85,145 @@ def write_file(out, path, data):
         write(out, f"{folder}/{decoded}", data)
 
 
+def listing(documents, folder):
+    """Entries of <folder>/listing.json from the export; [] when it has none."""
+    text = documents.get(f"{folder}/listing.json")
+    return json.loads(text).get("items", []) if text else []
+
+
+def item_url(site, folder, slug):
+    return f"{site.rstrip('/')}/{folder}/{quote(slug, safe='')}/"
+
+
+def static_url(site, folder, slug, name):
+    return f"{item_url(site, folder, slug)}static/{quote(name, safe='')}"
+
+
+def iso_time(value):
+    """`YYYY-MM-DD HH:MM:SS` (UTC, as the API stores it) to RFC 3339."""
+    return value.replace(" ", "T") + "Z" if value else None
+
+
+def share_page(site, folder, entry, doc):
+    """<dir>/<id>/index.html: Open Graph tags for Discord, Telegram and the
+    like, which read the first response and run no scripts, then a plain
+    redirect to the item on the site."""
+    slug = entry["path"]
+    name = entry.get("name") or slug
+    summary = entry.get("short_description") or ""
+    url = item_url(site, folder, slug)
+    shots = doc.get("screenshots") or []
+    image_name = shots[0] if shots else doc.get("icon")
+    image = static_url(site, folder, slug, image_name) if image_name else None
+    target = f"../../?type={folder}&item={quote(slug, safe='')}"
+    title = f"{name} {entry['version']}" if entry.get("version") else name
+    tags = [
+        ("og:site_name", SITE_NAME),
+        ("og:type", "website"),
+        ("og:title", title),
+        ("og:description", summary),
+        ("og:url", url),
+    ]
+    if image:
+        tags.append(("og:image", image))
+    meta = "\n".join(f'    <meta property="{key}" content="{escape(value)}">' for key, value in tags)
+    card = "summary_large_image" if shots else "summary"
+    return f"""<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{escape(title)} · {escape(SITE_NAME)}</title>
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' https:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+    <meta name="description" content="{escape(summary)}">
+{meta}
+    <meta name="twitter:card" content="{card}">
+    <link rel="canonical" href="{escape(url)}">
+    <meta http-equiv="refresh" content="0; url={escape(target)}">
+    <style>body{{font-family:system-ui,sans-serif;margin:3rem 1rem;text-align:center;color:#1d1d1f;background:#f5f5f7}}a{{color:#0066cc}}</style>
+</head>
+<body>
+    <h1>{escape(name)}</h1>
+    <p>{escape(summary)}</p>
+    <p><a href="{escape(target)}">Відкрити в каталозі · Open in the catalog</a></p>
+</body>
+</html>
+"""
+
+
+def atom_feed(site, documents):
+    """feed.xml: the FEED_SIZE most recently updated items of every kind, an
+    entry per item and version, so a new version shows up as a new entry."""
+    entries = []
+    for folder in DIRS:
+        for entry in listing(documents, folder):
+            when = entry.get("updated") or entry.get("added")
+            if when:
+                entries.append((when, folder, entry))
+    entries.sort(key=lambda e: e[0], reverse=True)
+    entries = entries[:FEED_SIZE]
+    root = site.rstrip("/") + "/"
+    lines = [
+        '<?xml version="1.0" encoding="utf-8"?>',
+        '<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="uk">',
+        f"  <title>{escape(SITE_NAME)}</title>",
+        "  <subtitle>Нові та оновлені застосунки, шпалери й моди для Лілки · "
+        "New and updated apps, wallpapers and mods for Lilka</subtitle>",
+        f'  <link rel="alternate" type="text/html" href="{escape(root)}"/>',
+        f'  <link rel="self" type="application/atom+xml" href="{escape(root)}feed.xml"/>',
+        f"  <id>{escape(root)}</id>",
+        f"  <updated>{iso_time(entries[0][0]) if entries else time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}</updated>",
+    ]
+    for when, folder, entry in entries:
+        url = item_url(site, folder, entry["path"])
+        version = entry.get("version")
+        name = entry.get("name") or entry["path"]
+        lines += [
+            "  <entry>",
+            f"    <title>{escape(f'{name} {version}' if version else name)}</title>",
+            f'    <link rel="alternate" type="text/html" href="{escape(url)}"/>',
+            f"    <id>{escape(url)}#{escape(version or when)}</id>",
+            f"    <updated>{iso_time(when)}</updated>",
+            f"    <author><name>{escape(entry.get('author') or '')}</name></author>",
+            f'    <category term="{folder}"/>',
+            f"    <summary>{escape(entry.get('short_description') or '')}</summary>",
+            "  </entry>",
+        ]
+    lines.append("</feed>")
+    return "\n".join(lines) + "\n"
+
+
+def announcements(site, documents, items, old_items):
+    """Items that are new on the mirror or have a new version since the live
+    one, oldest first. Without the live state there is nothing to compare
+    with, and announcing nothing beats announcing the whole catalog."""
+    if not old_items:
+        return []
+    found = []
+    for folder in DIRS:
+        for entry in listing(documents, folder):
+            base = f"{folder}/{entry['path']}"
+            if base not in items:
+                continue
+            before = old_items.get(base)
+            if before and before.get("version") == items[base]["version"]:
+                continue
+            icon = entry.get("icon")
+            found.append({
+                "kind": folder,
+                "status": "updated" if before else "new",
+                "name": entry.get("name") or entry["path"],
+                "version": entry.get("version"),
+                "author": entry.get("author"),
+                "summary": (entry.get("short_description") or "")[:300],
+                "url": item_url(site, folder, entry["path"]),
+                "icon": static_url(site, folder, entry["path"], icon) if icon else None,
+                "updated": entry.get("updated"),
+            })
+    found.sort(key=lambda a: a["updated"] or "")
+    return found
+
+
 def github_output(**values):
     target = os.environ.get("GITHUB_OUTPUT")
     if target:
@@ -84,6 +238,9 @@ def main():
     parser.add_argument("--pages", default=os.environ.get("PAGES_URL", "https://catalog.lilka.dev"),
                         help="live mirror to reuse unchanged files from")
     parser.add_argument("--out", default="build")
+    parser.add_argument("--site", default=os.environ.get("SITE_URL", "https://catalog.lilka.dev"),
+                        help="public address of the website, for share pages and the feed")
+    parser.add_argument("--announce-out", help="also write the items to announce to this file")
     parser.add_argument("--skip-unchanged", action="store_true",
                         help="do nothing when the catalog is the one already published")
     args = parser.parse_args()
@@ -107,7 +264,8 @@ def main():
 
     previous = {}
     try:
-        live = session.get(f"{args.pages.rstrip('/')}/{STATE_FILE}", timeout=30)
+        # A fresh copy, not the CDN's: a stale state would announce an update twice
+        live = session.get(f"{args.pages.rstrip('/')}/{STATE_FILE}", params={"t": int(time.time())}, timeout=30)
         if live.ok:
             previous = live.json()
     except (requests.RequestException, ValueError):
@@ -154,13 +312,26 @@ def main():
         print("\n".join(errors), file=sys.stderr)
         sys.exit(f"{len(errors)} file(s) failed, mirror not written completely")
 
+    # The website's own files, from the same documents
+    for folder in DIRS:
+        for entry in listing(export["documents"], folder):
+            doc = json.loads(export["documents"].get(f"{folder}/{entry['path']}/index.json", "{}"))
+            write(args.out, f"{folder}/{entry['path']}/index.html", share_page(args.site, folder, entry, doc))
+    write(args.out, "feed.xml", atom_feed(args.site, export["documents"]))
+    news = announcements(args.site, export["documents"], items, old)
+    if args.announce_out:
+        write(os.path.dirname(os.path.abspath(args.announce_out)), os.path.basename(args.announce_out),
+              json.dumps(news, ensure_ascii=False, indent=2))
+
     write(args.out, STATE_FILE, json.dumps({
         "stamp": export["stamp"],
         "items": {base: {"version": item["version"]} for base, item in items.items()},
     }, indent=2))
     print(f"{len(items)} items, {len(export['documents'])} documents from 1 API request; "
-          f"files: {counts['pages']} reused from Pages, {counts['api']} from the API")
-    github_output(changed="true")
+          f"files: {counts['pages']} reused from Pages, {counts['api']} from the API; "
+          f"{len(news)} new or updated item(s) to announce")
+    # One line of JSON: names and descriptions cannot break the output format
+    github_output(changed="true", announce=json.dumps(news, ensure_ascii=False, separators=(",", ":")))
 
 
 if __name__ == "__main__":

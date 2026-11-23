@@ -11,9 +11,12 @@ Everything is in this repository:
 site/                  the website (GitHub Pages)
 api/                   lilka-catalog-api, the Cloudflare Worker that holds the
                        catalog (D1 database, R2 files) — see api/README.md
-scripts/mirror_api.py  copies the catalog from the API to Pages for Lilka devices
+scripts/mirror_api.py  copies the catalog from the API to Pages for Lilka devices,
+                       plus share pages and feed.xml for the website
+scripts/announce.py    posts new and updated items to Discord
 .github/workflows/
-  deploy-pages.yml     site + mirror: on push, hourly, and after approvals
+  deploy-pages.yml     site + mirror: on push, hourly, and after approvals;
+                       then announces what is new
   process.yml          ClamAV scan and processing of new uploads
   api.yml              API tests on every PR; deploy from main
 ```
@@ -34,7 +37,11 @@ scripts/mirror_api.py  copies the catalog from the API to Pages for Lilka device
    hour (the device mirror below is rebuilt on approval, and hourly).
 
 Your submissions, their review status and moderator notes are in **My apps**.
-A new release is **My apps → New version**.
+A new release is **My apps → New version**. Its number has to be higher than
+the earlier ones (1.2.10 > 1.2.9 > 1.2.9-beta), and the form offers the next
+one. The icon and screenshots of the approved version are kept unless you
+untick them; extra files can be kept too. Attach only what changed: a file
+with the same name replaces the kept one.
 
 File names: Latin letters, digits, `.`, `_` and `-`. Up to 8 MB per file and
 24 MB per upload.
@@ -55,6 +62,13 @@ File names: Latin letters, digits, `.`, `_` and `-`. Up to 8 MB per file and
 
 Diagrams of the whole flow are in [api/README.md](api/README.md).
 
+On the website, search, the type filter and ★ favorites work on the list
+already in the page (favorites live in the browser, no account needed). Every
+item has its own link, `https://catalog.lilka.dev/<dir>/<id>/` (**Copy link**
+in the item window), with a preview for Discord and Telegram that forwards to
+the item. New and updated items are in [feed.xml](https://catalog.lilka.dev/feed.xml)
+(Atom).
+
 The API serves the catalog under `/catalog` in exactly the layout Keira's
 `lilcatalog` reads from `https://catalog.lilka.dev`:
 
@@ -66,6 +80,12 @@ The API serves the catalog under `/catalog` in exactly the layout Keira's
 <dir>/<id>/package.zip                       manifest.yml + entry and extra files
 authors.json
 ```
+
+Two more files per kind are for the website only, and Keira never reads them:
+`<dir>/listing.json` (every item with dates, rating, version, Keira version,
+entry type and license) and `<dir>/<id>/versions.json` (every approved
+version with its changelog). `index.json` and `index_short.json` keep exactly
+the fields shipped firmware knows.
 
 Firmware already in people's hands cannot change its catalog address, so the
 deploy workflow copies that tree to Pages (`scripts/mirror_api.py`) on every
@@ -99,8 +119,23 @@ local API, run this in the browser console:
 localStorage.setItem('lilka-api-url', 'http://localhost:8787')
 ```
 
-The copied `site/apps/`, `site/wallpapers/`, `site/mods/` and
-`site/authors.json` are not committed.
+The copied `site/apps/`, `site/wallpapers/`, `site/mods/`, `site/authors*.json`
+and `site/feed.xml` are not committed. Add `--site http://localhost:8000` so the
+share pages and the feed link to your local copy, and `--announce-out FILE`
+to see what would be announced (`python3 scripts/announce.py FILE --dry-run`
+prints the Discord message).
+
+## Announcements on Discord
+
+After a deploy that brings new items or new versions, the `announce` job of
+`deploy-pages.yml` posts them to Discord: one message, up to 10 items, each
+with its name, version, short description, author and icon. Set the
+repository secret `DISCORD_WEBHOOK_URL` (channel → Edit → Integrations →
+Webhooks → New webhook → Copy URL); without it the job only logs what it
+would post. What counts as new is decided against the live
+`mirror-state.json`, so a run that cannot read it announces nothing rather
+than the whole catalog. Mentions are switched off: names and descriptions
+cannot ping anyone.
 
 ## Roles and moderation
 

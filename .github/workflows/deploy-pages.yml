@@ -31,6 +31,8 @@ jobs:
       contents: read
     outputs:
       changed: ${{ steps.mirror.outputs.changed }}
+      # JSON list of new and updated items, for the announce job
+      announce: ${{ steps.mirror.outputs.announce }}
     env:
       API_URL: ${{ vars.API_URL || 'https://lilka-catalog-api.black-ghost-ukraine.workers.dev' }}
     steps:
@@ -86,3 +88,26 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+
+  # New items and new versions go to the community's Discord once they are
+  # live. Without the DISCORD_WEBHOOK_URL secret the script only says so.
+  # The list comes through an environment variable, never into the script
+  # text: names and descriptions are written by authors
+  announce:
+    runs-on: ubuntu-latest
+    needs: [build, deploy]
+    if: needs.build.outputs.announce != '' && needs.build.outputs.announce != '[]'
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts
+
+      - name: Post to Discord
+        env:
+          ANNOUNCE: ${{ needs.build.outputs.announce }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: python3 scripts/announce.py
