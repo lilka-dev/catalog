@@ -63,6 +63,9 @@ jobs:
         if: steps.mirror.outputs.changed != 'false'
         run: |
           cp site/index.html site/404.html site/styles.css site/script.js site/community.js site/favicon.svg build/
+          # The CSP lets a local copy of the site talk to `wrangler dev`; the live site has no use for that
+          sed -i 's# http://localhost:8787##g' build/index.html
+          if grep -n 'localhost' build/index.html; then echo "::error::localhost left in index.html"; exit 1; fi
 
       - name: Setup Pages
         if: steps.mirror.outputs.changed != 'false'

@@ -171,8 +171,16 @@ def package_manifest(info):
 
 # --------------------------------------------------------------- process ----
 
+def withdrawn(session, api, version_id):
+    """The author can withdraw an upload while it waits (DELETE /apps/:slug/versions/:id)."""
+    return session.get(f"{api}/scan/versions/{version_id}", timeout=60).status_code == 404
+
+
 def process(session, api, version_id, prefix=""):
     info = session.get(f"{api}/scan/versions/{version_id}", timeout=60)
+    if info.status_code == 404:
+        log(f"{prefix} version id {version_id}: withdrawn, skipped")
+        return None
     info.raise_for_status()
     info = info.json()
     app, version = info["app"], info["version"]
@@ -189,6 +197,9 @@ def process(session, api, version_id, prefix=""):
         for f in info["files"]:
             path = os.path.join(work, f["name"])
             with session.get(f["url"], stream=True, timeout=120) as response:
+                if response.status_code == 404 and withdrawn(session, api, version_id):
+                    log("  withdrawn while processing, skipped")
+                    return None
                 response.raise_for_status()
                 with open(path, "wb") as out:
                     for chunk in response.iter_content(65536):
@@ -275,6 +286,9 @@ def report(session, api, version_id, fields, files, info):
     finally:
         for _, (_, handle) in handles:
             handle.close()
+    if response.status_code == 404:
+        log("  withdrawn while processing, nothing reported")
+        return None
     if not response.ok:
         raise RuntimeError(f"report failed: {response.status_code} {response.text}")
     status = response.json().get("status")

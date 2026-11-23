@@ -78,7 +78,16 @@ mirror is a plain copy of that tree.
    history and keeps 1.2. Version numbers that do not compare as dotted
    numbers keep the old rule, the newest approval wins.
 5. Owner or moderator can hide the app (`PATCH status: hidden`); it drops out
-   of `/catalog` at once and out of the mirror on its next build.
+   of `/catalog` at once and out of the mirror on its next build. When staff
+   hide someone else's item it is `mod_hidden`, with an optional `note` the
+   owner sees, and only staff publish it again.
+
+Before step 4 the owner can withdraw the upload (`DELETE
+/apps/:slug/versions/:id`): the row and its files go and the number is free
+again; the processor skips a version that is gone. A rejected or infected
+number can be uploaded again: the new upload replaces that row, and the
+rejection stays in the moderation log. An item that was never approved can
+be deleted by its owner (`DELETE /apps/:slug`).
 
 Imported apps (below) skip step 4: they were reviewed as repo pull requests.
 
@@ -154,6 +163,8 @@ stateDiagram-v2
     pending_scan --> approved: clean (import)
     pending_review --> approved: moderator approves
     pending_review --> rejected: moderator rejects<br/>(files deleted)
+    pending_scan --> [*]: withdrawn by the owner<br/>(row and files deleted)
+    pending_review --> [*]: withdrawn by the owner<br/>(row and files deleted)
     approved --> [*]: public on /catalog,<br/>mirror on next run
     infected --> [*]
     rejected --> [*]
@@ -187,14 +198,17 @@ All bodies are JSON unless noted. Authenticated calls send
 | GET | `/apps?kind=&q=&page=` | user | Published apps, 24 per page |
 | GET | `/apps/:slug` | user / owner | Detail with versions; owner also sees drafts and statuses |
 | POST | `/apps` | user | Create draft; `kind`: `app`, `wallpaper` or `mod` |
-| PATCH | `/apps/:slug` | owner, mod | Edit metadata, `status: hidden \| published`; moderators also `author`, `owner` (login) |
-| POST | `/apps/:slug/versions` | owner, mod | Multipart: `version`, `keira_version`, `entry_type` (`lua`, `binary`, `archive`; `js` (mJS) is no longer accepted), `changelog`, files `entry`, `files[]`, `icon`, `screenshots[]`. Mods: no entry, model files as `files[]`. `keep_icon`, `keep_screenshots`, `keep_files` (`1`) copy those files of the approved version into this one (409 without one); a new file with the same name wins. The version must be higher than every earlier one that is not rejected or infected (409) |
+| PATCH | `/apps/:slug` | owner, mod | Edit metadata, `status: hidden \| published`; moderators also `author`, `owner` (login). Staff hiding someone else's item may add `note` (up to 1000 characters); that item is `mod_hidden` and only staff publish it again (403 for the owner) |
+| DELETE | `/apps/:slug` | owner, mod | `{ "confirm": "<slug>" }`: deletes an item that never had an approved version, with its uploads; 409 once one was approved (hide it instead) |
+| POST | `/apps/:slug/versions` | owner, mod | Multipart: `version`, `keira_version`, `entry_type` (`lua`, `binary`, `archive`; `js` (mJS) is no longer accepted), `changelog`, files `entry`, `files[]`, `icon`, `screenshots[]`. Mods: no entry, model files as `files[]`. `keep_icon`, `keep_screenshots`, `keep_files` (`1`) copy those files of the approved version into this one (409 without one); a new file with the same name wins. The version must be higher than every earlier one that is not rejected or infected (409); a rejected or infected number can be sent again and replaces that row |
+| DELETE | `/apps/:slug/versions/:id` | owner, mod | Withdraws a version that is `pending_scan` or `pending_review`: the row and its files are deleted (409 for any other status) |
 | PUT | `/apps/:slug/rating` | user (not owner) | `{ "stars": 1..5 }` → `{ my_rating, average, count }`; sending the same stars again writes nothing |
 | DELETE | `/apps/:slug/rating` | user | Removes your rating |
 | POST | `/apps/:slug/reports` | user | `{ "reason": "..." }` |
 | GET | `/users/:login/apps[?versions]` | user | Apps of a user (all of them, with versions, for the user themself or a moderator) |
 | GET | `/files/:slug/:version/:name` | owner, mod | File by version id, for "My apps" and moderation previews |
-| GET | `/mod/queue?status=` | mod | Versions by status, default `pending_review` |
+| GET | `/mod/queue?status=` | mod | Versions by status, default `pending_review`; each with `previous`, the approved version devices get now (files, checksums), and the version's `kept` names, for comparing |
+| GET | `/mod/log?app=&user=&before=` | mod | The moderation log, newest first, 50 per page (`has_more`, then `before=<last id>`). `app`: by slug, deleted items too; `user`: what was done to them or their items, and what they did as staff |
 | GET | `/mod/apps` | mod | Every item with owner, creator, version and pending counts, rating, open reports |
 | DELETE | `/mod/apps/:slug` | admin | `{ "confirm": "<slug>" }`: deletes the item, its versions, ratings, reports and R2 files |
 | GET | `/mod/users` | mod | Everyone who has signed in, with role, trusted, note flag and item count |
@@ -253,7 +267,7 @@ npm ci
 cp .dev.vars.example .dev.vars   # dev placeholders; set GITHUB_CLIENT_SECRET to any value
 npm run db:migrate:local
 npm run dev            # http://localhost:8787
-npm run smoke          # in another terminal: 223 end-to-end checks
+npm run smoke          # in another terminal: 280 end-to-end checks
 npm run typecheck
 ```
 

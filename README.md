@@ -43,6 +43,13 @@ one. The icon and screenshots of the approved version are kept unless you
 untick them; extra files can be kept too. Attach only what changed: a file
 with the same name replaces the kept one.
 
+An upload that waits for review can be withdrawn (**Withdraw** next to it),
+say when it has the wrong file; its number is free again, and so is the
+number of a rejected upload once you fix it. An item that was never approved
+(a draft, or only rejected uploads) can be deleted in **My apps**; anything
+that was approved can only be hidden. When a moderator hides your item, their
+reason is in **My apps**, and only a moderator returns it to the catalog.
+
 File names: Latin letters, digits, `.`, `_` and `-`. Up to 8 MB per file and
 24 MB per upload.
 
@@ -153,6 +160,7 @@ permissions, never role names, and the site shows the same table in
 | `users.manage`: trust authors, keep notes, end sessions, remove ratings | ✓ | ✓ | ✓ | |
 | `users.ban`: ban and unban | ✓ | ✓ | ✓ | |
 | `limits.exempt`: no limits on items, uploads and changes | ✓ | ✓ | ✓ | |
+| `log`: the moderation log | ✓ | ✓ | ✓ | |
 | `items.delete`: delete an item for good | ✓ | ✓ | | |
 | `items.import`: import from the old repository | ✓ | ✓ | | |
 | `roles.moderator`: make and remove moderators | ✓ | ✓ | | |
@@ -177,12 +185,22 @@ permissions, never role names, and the site shows the same table in
   ```
 
 The **Moderation** tab shows each staff member the parts their role allows:
-versions waiting for review with code and image preview, checksums and the
-antivirus result; approve, reject with a reason, ban an author; open reports.
+versions waiting for review with code and image preview and the antivirus
+result; approve, reject with a reason (ready reasons are one click away), ban
+an author; open reports. Each waiting version lists its files against the
+approved version that devices get now (new, changed, unchanged, kept,
+removed, by checksum), and a changed text file opens as a line diff.
 **All items** lists every app, wallpaper and mod with an owner selector and
 **Manage**: edit every field including the author line, publish or hide,
 review each version with its files, see and resolve the item's reports,
-delete it for good (admins). **Users** lists everyone who has signed in;
+delete it for good (admins). Hiding someone else's item asks for a reason
+the owner sees, and the owner cannot return it to the catalog themselves.
+**Log** lists what staff did: reviews with their notes, hiding and
+publishing, edits of other people's items, hand-overs, deletions, closed
+reports, bans, trust, notes (that one changed, not the text), sessions,
+ratings and roles. **Manage** and **Details** show the entries of that item
+or person. The log is the `mod_log` table (migration 0010); authors' own
+changes to their own items are not in it. **Users** lists everyone who has signed in;
 **Details** shows their activity, items and reports, and lets a moderator
 mark them trusted (no item limits; still scanned and reviewed), keep a
 private note, end their sessions, remove their ratings, ban or unban.

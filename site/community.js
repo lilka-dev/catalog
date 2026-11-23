@@ -168,7 +168,7 @@ const COMMUNITY_STRINGS = {
     'items-count': 'елементів: {n}',
     'joined': 'з {date}',
     'unban': 'Розблокувати',
-    'confirm-unban': 'Розблокувати {login}? Приховані додатки треба буде опублікувати знову вручну.',
+    'confirm-unban': 'Розблокувати {login}? Приховані додатки автор зможе повернути сам, крім тих, які сховав модератор.',
     'filter': 'Пошук',
     'manage': 'Керувати',
     'details': 'Докладно',
@@ -218,6 +218,69 @@ const COMMUNITY_STRINGS = {
     'err-shots': 'Не більше 6 знімків екрана.',
     'err-files': 'Не більше 16 додаткових файлів.',
     'err-model-files': 'Не більше 16 файлів моделі.',
+    // My apps: drafts, withdrawn uploads, items a moderator hid
+    'delete-draft': 'Видалити',
+    'confirm-delete-draft': 'Видалити «{slug}» разом з усіма завантаженнями? Ідентифікатор звільниться.',
+    'withdraw': 'Відкликати',
+    'confirm-withdraw': 'Відкликати версію {version}? Файли буде видалено, номер можна буде використати знову.',
+    'mod-hidden-title': 'Сховано модератором',
+    'mod-hidden-hint': 'Повернути елемент у каталог може лише модератор. Якщо щось виправили, напишіть у Discord спільноти Лілки.',
+    // Note dialog: approve, reject, hide
+    'note-text': 'Текст',
+    'note-presets': 'Готові причини',
+    'note-presets-hint': 'Натисніть, щоб додати до тексту; його можна змінити.',
+    'ok': 'Готово',
+    'hide-reason': 'Чому ховаємо (побачить автор, необовʼязково):',
+    // Review: what changed since the approved version
+    'changes-vs': 'Порівняно з версією {version}, яку зараз отримують пристрої:',
+    'changes-first': 'Перша версія: усі файли нові.',
+    'change-added': 'новий',
+    'change-changed': 'змінено',
+    'change-same': 'без змін',
+    'change-kept': 'залишено з {version}',
+    'change-removed': 'прибрано',
+    'show-diff': 'Що змінилося',
+    'hide-diff': 'Сховати зміни',
+    'diff-too-big': 'Файли завеликі для порівняння в браузері; відкрийте обидва окремо.',
+    'diff-same-lines': '… {n} рядків без змін …',
+    // Moderation log
+    'mod-log': 'Журнал',
+    'log-title': 'Журнал дій команди',
+    'log-hint': 'Хто що зробив: перевірки, приховування, передачі, блокування, ролі. Нотатки про користувачів сюди не потрапляють, лише факт зміни.',
+    'log-filter-app': 'Елемент (ідентифікатор)',
+    'log-filter-user': 'Користувач (логін)',
+    'log-apply': 'Показати',
+    'log-reset': 'Усі записи',
+    'log-more': 'Ще',
+    'log-empty': 'Записів немає.',
+    'log-open': 'Увесь журнал',
+    'log-system': 'система',
+    'log-version.approve': 'схвалює версію',
+    'log-version.reject': 'відхиляє версію',
+    'log-version.withdraw': 'відкликає версію',
+    'log-item.edit': 'редагує',
+    'log-item.hide': 'ховає з каталогу',
+    'log-item.publish': 'публікує',
+    'log-item.owner': 'передає власність',
+    'log-item.author': 'змінює рядок автора',
+    'log-item.delete': 'видаляє',
+    'log-item.import': 'імпортує',
+    'log-report.resolve': 'закриває скаргу на',
+    'log-user.ban': 'блокує',
+    'log-user.unban': 'розблоковує',
+    'log-user.trust': 'змінює довіру до',
+    'log-user.note': 'змінює нотатку про',
+    'log-user.sign_out': 'завершує сесії',
+    'log-user.ratings': 'прибирає оцінки',
+    'log-user.role': 'змінює роль',
+    'log-not-latest': 'не стала актуальною: є вища версія',
+    'log-fields': 'поля: {fields}',
+    'log-count': 'кількість: {n}',
+    'log-trusted-yes': 'довірений',
+    'log-trusted-no': 'не довірений',
+    'log-draft': 'чернетка',
+    'log-replaced': 'повторно',
+    'perm-log': 'Бачити журнал дій команди',
   },
   en: {
     'tab-share': 'Publish',
@@ -379,7 +442,7 @@ const COMMUNITY_STRINGS = {
     'items-count': 'items: {n}',
     'joined': 'since {date}',
     'unban': 'Unban',
-    'confirm-unban': 'Unban {login}? Their hidden apps have to be published again by hand.',
+    'confirm-unban': 'Unban {login}? They can return their hidden apps themselves, except those a moderator hid.',
     'filter': 'Search',
     'manage': 'Manage',
     'details': 'Details',
@@ -429,6 +492,69 @@ const COMMUNITY_STRINGS = {
     'err-shots': 'At most 6 screenshots.',
     'err-files': 'At most 16 extra files.',
     'err-model-files': 'At most 16 model files.',
+    // My apps: drafts, withdrawn uploads, items a moderator hid
+    'delete-draft': 'Delete',
+    'confirm-delete-draft': 'Delete "{slug}" with all its uploads? The identifier becomes free again.',
+    'withdraw': 'Withdraw',
+    'confirm-withdraw': 'Withdraw version {version}? Its files are deleted and the number can be used again.',
+    'mod-hidden-title': 'Hidden by a moderator',
+    'mod-hidden-hint': 'Only a moderator can return it to the catalog. If you fixed something, write in the Lilka community Discord.',
+    // Note dialog: approve, reject, hide
+    'note-text': 'Text',
+    'note-presets': 'Ready reasons',
+    'note-presets-hint': 'Click one to add it to the text; you can edit it.',
+    'ok': 'Done',
+    'hide-reason': 'Why it is hidden (the author will see it, optional):',
+    // Review: what changed since the approved version
+    'changes-vs': 'Compared with version {version}, the one devices get now:',
+    'changes-first': 'First version: every file is new.',
+    'change-added': 'new',
+    'change-changed': 'changed',
+    'change-same': 'unchanged',
+    'change-kept': 'kept from {version}',
+    'change-removed': 'removed',
+    'show-diff': 'What changed',
+    'hide-diff': 'Hide changes',
+    'diff-too-big': 'The files are too big to compare in the browser; open both on their own.',
+    'diff-same-lines': '… {n} unchanged lines …',
+    // Moderation log
+    'mod-log': 'Log',
+    'log-title': 'What the team did',
+    'log-hint': 'Who did what: reviews, hiding, hand-overs, bans, roles. Notes about users are not copied here, only that one changed.',
+    'log-filter-app': 'Item (identifier)',
+    'log-filter-user': 'User (login)',
+    'log-apply': 'Show',
+    'log-reset': 'All entries',
+    'log-more': 'More',
+    'log-empty': 'No entries.',
+    'log-open': 'Whole log',
+    'log-system': 'system',
+    'log-version.approve': 'approves version',
+    'log-version.reject': 'rejects version',
+    'log-version.withdraw': 'withdraws version',
+    'log-item.edit': 'edits',
+    'log-item.hide': 'hides from the catalog',
+    'log-item.publish': 'publishes',
+    'log-item.owner': 'hands over',
+    'log-item.author': 'changes the author line of',
+    'log-item.delete': 'deletes',
+    'log-item.import': 'imports',
+    'log-report.resolve': 'closes a report on',
+    'log-user.ban': 'bans',
+    'log-user.unban': 'unbans',
+    'log-user.trust': 'changes trust for',
+    'log-user.note': 'changes the note about',
+    'log-user.sign_out': 'ends the sessions of',
+    'log-user.ratings': 'removes the ratings of',
+    'log-user.role': 'changes the role of',
+    'log-not-latest': 'did not become the latest: a higher version exists',
+    'log-fields': 'fields: {fields}',
+    'log-count': 'count: {n}',
+    'log-trusted-yes': 'trusted',
+    'log-trusted-no': 'not trusted',
+    'log-draft': 'draft',
+    'log-replaced': 'again',
+    'perm-log': 'See the moderation log',
   },
 };
 
@@ -437,6 +563,82 @@ Object.assign(UI_STRINGS.uk, COMMUNITY_STRINGS.uk);
 Object.assign(UI_STRINGS.en, COMMUNITY_STRINGS.en);
 
 // Same limits and rules as the API, so mistakes show up before a long upload
+// Ready reasons for a rejection: a click adds the text, the moderator edits it.
+// In the moderator's language; most authors read both
+const REJECT_PRESETS = {
+  uk: [
+    ['Немає знімків', 'Додайте іконку й хоча б один знімок екрана, щоб було видно, що це за застосунок.'],
+    ['Посилання на код', 'Посилання на вихідний код не відкривається або веде не на цей застосунок.'],
+    ['Не запускається', 'На Лілці застосунок не запускається або одразу завершується з помилкою.'],
+    ['Замалий опис', 'Опис надто короткий: напишіть, що робить застосунок і як ним керувати.'],
+    ['Дублікат', 'Такий елемент уже є в каталозі. Надішліть нову версію наявного замість окремого.'],
+    ['Ліцензія', 'Не вказано ліцензію, або вона не дозволяє поширювати ці файли.'],
+    ['Зайві файли', 'У завантаженні є файли, які застосунку не потрібні (збірка, кеш, чужий код). Приберіть їх.'],
+  ],
+  en: [
+    ['No screenshots', 'Add an icon and at least one screenshot, so people can see what the app is.'],
+    ['Source link', 'The link to the source code does not open or points at something else.'],
+    ['Does not start', 'On Lilka the app does not start or quits right away with an error.'],
+    ['Description too short', 'The description is too short: say what the app does and how to control it.'],
+    ['Duplicate', 'This item is already in the catalog. Send a new version of it instead of a separate one.'],
+    ['License', 'There is no license, or it does not allow sharing these files.'],
+    ['Extra files', 'The upload has files the app does not need (build output, cache, someone else\'s code). Remove them.'],
+  ],
+};
+
+// Opened inline in the review; anything else is compared by checksum only
+const TEXT_FILE_RE = /\.(lua|txt|md|json|ya?ml|ini|cfg|csv|toml|py|js)$/i;
+
+/**
+ * Line diff of two texts: [' ' | '+' | '-', line] pairs, or null when the
+ * changed middle is too big to compare here. Common head and tail are cut
+ * first, so a small change in a big file costs little.
+ */
+function lineDiff(oldText, newText, limit = 4000000) {
+  const a = oldText.split('\n');
+  const b = newText.split('\n');
+  let start = 0;
+  while (start < a.length && start < b.length && a[start] === b[start]) start++;
+  let endA = a.length;
+  let endB = b.length;
+  while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) {
+    endA--;
+    endB--;
+  }
+  const n = endA - start;
+  const m = endB - start;
+  if (n * m > limit) return null;
+  // Longest common subsequence of the middle, filled from the end
+  const width = m + 1;
+  const lcs = new Uint32Array((n + 1) * width);
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      lcs[i * width + j] = a[start + i] === b[start + j] ?
+          lcs[(i + 1) * width + j + 1] + 1 :
+          Math.max(lcs[(i + 1) * width + j], lcs[i * width + j + 1]);
+    }
+  }
+  const ops = [];
+  for (let k = 0; k < start; k++) ops.push([' ', a[k]]);
+  let i = 0;
+  let j = 0;
+  while (i < n && j < m) {
+    if (a[start + i] === b[start + j]) {
+      ops.push([' ', a[start + i]]);
+      i++;
+      j++;
+    } else if (lcs[(i + 1) * width + j] >= lcs[i * width + j + 1]) {
+      ops.push(['-', a[start + i++]]);
+    } else {
+      ops.push(['+', b[start + j++]]);
+    }
+  }
+  while (i < n) ops.push(['-', a[start + i++]]);
+  while (j < m) ops.push(['+', b[start + j++]]);
+  for (let k = endA; k < a.length; k++) ops.push([' ', a[k]]);
+  return ops;
+}
+
 const FILENAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{1,47}$/;
 const MAX_FILE_BYTES = 8 * 1024 * 1024;
@@ -1439,11 +1641,25 @@ class CommunityUI {
     box.querySelectorAll('[data-action]').forEach(btn => {
       btn.addEventListener('click', () => this.onMyAppAction(btn));
     });
+    box.querySelectorAll('[data-withdraw]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const slug = btn.closest('.community-card').dataset.slug;
+        if (!confirm(this.t('confirm-withdraw', {version: btn.dataset.version}))) return;
+        try {
+          await this.request('DELETE', `/apps/${encodeURIComponent(slug)}/versions/${btn.dataset.withdraw}`);
+          await this.showMyApps();
+        } catch (error) {
+          alert(this.t('error', {message: error.message}));
+        }
+      });
+    });
     this.bindFileButtons(box);
   }
 
   renderMyApp(app) {
     const [catalogType] = app.catalog_path.split('/');
+    // Never approved: a draft or only rejected uploads, which the author may delete
+    const approved = !!app.latest_version || app.versions.some(v => v.status === 'approved');
     return `
       <div class="community-card" data-slug="${this.esc(app.slug)}">
         <div class="community-card-head">
@@ -1458,18 +1674,29 @@ class CommunityUI {
             ${app.status === 'published' ?
                 `<a class="btn-sm" href="?type=${catalogType}&item=${encodeURIComponent(app.slug)}">${this.esc(this.t('view-in-catalog'))}</a>
                  <button class="btn-sm" data-action="hide">${this.esc(this.t('hide'))}</button>` : ''}
-            ${app.status === 'hidden' ?
+            ${app.status === 'hidden' && !app.mod_hidden && approved ?
                 `<button class="btn-sm" data-action="unhide">${this.esc(this.t('unhide'))}</button>` : ''}
+            ${approved ? '' : `<button class="btn-sm danger" data-action="delete">${this.esc(this.t('delete-draft'))}</button>`}
           </div>
         </div>
+        ${app.mod_hidden ? this.renderModHidden(app) : ''}
         <div class="community-edit" hidden></div>
         <h4>${this.esc(this.t('versions'))}</h4>
-        ${app.versions.length ? app.versions.map(v => this.renderVersion(v)).join('') :
+        ${app.versions.length ? app.versions.map(v => this.renderVersion(v, true, {withdraw: true})).join('') :
             `<p class="community-hint">${this.esc(this.t('no-versions'))}</p>`}
       </div>`;
   }
 
-  renderVersion(v, withFiles = true) {
+  /** Why an item is out of the catalog when a moderator took it out: My apps and Manage. */
+  renderModHidden(app, {forOwner = true} = {}) {
+    // .community-note keeps whitespace (pre-wrap), so the markup has none between its parts
+    const title = `<strong>${this.esc(this.t('mod-hidden-title'))}</strong>`;
+    const note = app.hidden_note ? `: ${this.esc(app.hidden_note)}` : '';
+    const hint = forOwner ? `<div class="community-hint">${this.esc(this.t('mod-hidden-hint'))}</div>` : '';
+    return `<div class="community-note">${title}${note}${hint}</div>`;
+  }
+
+  renderVersion(v, withFiles = true, {withdraw = false} = {}) {
     const notes = [];
     if (v.review_note) {
       notes.push(`<div class="community-note"><strong>${this.esc(this.t('review-note'))}:</strong> ${this.esc(v.review_note)}</div>`);
@@ -1492,6 +1719,8 @@ class CommunityUI {
           <strong>${this.esc(v.version)}</strong>
           ${this.statusBadge(v.status)}
           <span class="community-hint">${meta}</span>
+          ${withdraw && (v.status === 'pending_scan' || v.status === 'pending_review') ?
+              `<button class="btn-sm" data-withdraw="${v.id}" data-version="${this.esc(v.version)}">${this.esc(this.t('withdraw'))}</button>` : ''}
         </div>
         ${v.changelog ? `<div class="community-hint">${this.esc(v.changelog)}</div>` : ''}
         ${notes.join('')}
@@ -1546,6 +1775,288 @@ class CommunityUI {
     });
   }
 
+  /**
+   * A note for an approval, a rejection or hiding, in a dialog instead of
+   * prompt(): room for a few lines and, for rejections, ready reasons.
+   * Resolves to the trimmed text, '' when left empty, or null when cancelled.
+   */
+  askNote({title, required = false, presets = []}) {
+    return new Promise(resolve => {
+      const dialog = document.createElement('dialog');
+      dialog.className = 'note-dialog';
+      dialog.setAttribute('aria-labelledby', 'noteDialogTitle');
+      dialog.innerHTML = `
+        <form method="dialog" class="community-form">
+          <h3 id="noteDialogTitle">${this.esc(title)}</h3>
+          ${presets.length ? `
+            <div class="note-presets" role="group" aria-label="${this.esc(this.t('note-presets'))}">
+              ${presets.map(([label], i) => `<button type="button" class="btn-sm" data-preset="${i}">${this.esc(label)}</button>`).join('')}
+            </div>
+            <p class="community-hint">${this.esc(this.t('note-presets-hint'))}</p>` : ''}
+          <label class="form-field"><span class="form-label">${this.esc(this.t('note-text'))}</span>
+            <textarea rows="5" maxlength="2000"></textarea>
+          </label>
+          <div class="form-actions">
+            <button class="download-btn" type="submit">${this.esc(this.t('ok'))}</button>
+            <button class="btn-sm" type="button" data-cancel>${this.esc(this.t('cancel'))}</button>
+          </div>
+        </form>`;
+      document.body.appendChild(dialog);
+      const textarea = dialog.querySelector('textarea');
+      let result = null;
+      dialog.querySelectorAll('[data-preset]').forEach(btn => btn.addEventListener('click', () => {
+        const text = presets[btn.dataset.preset][1];
+        const current = textarea.value.trim();
+        textarea.value = current ? `${current}\n${text}` : text;
+        textarea.focus();
+      }));
+      dialog.querySelector('form').addEventListener('submit', (event) => {
+        const value = textarea.value.trim();
+        if (required && !value) {
+          event.preventDefault();
+          textarea.focus();
+          return;
+        }
+        result = value;
+      });
+      dialog.querySelector('[data-cancel]').addEventListener('click', () => dialog.close());
+      dialog.addEventListener('close', () => {
+        dialog.remove();
+        resolve(result);
+      });
+      dialog.showModal();
+      textarea.focus();
+    });
+  }
+
+  askRejectReason() {
+    return this.askNote({
+      title: this.t('reject-reason'),
+      required: true,
+      presets: REJECT_PRESETS[this.app.currentLang] || REJECT_PRESETS.en,
+    });
+  }
+
+  /**
+   * What a version changes against `previous`, the approved version devices
+   * get now: every stored file as new, changed, unchanged, kept or removed,
+   * by checksum. Changed text files get a button that shows the line diff.
+   */
+  renderChanges(version, previous) {
+    const urls = v => {
+      const map = new Map();
+      for (const f of [v.entry, ...(v.files || []), v.icon, ...(v.screenshots || [])]) if (f) map.set(f.name, f.url);
+      return map;
+    };
+    const now = urls(version);
+    const before = previous ? urls(previous) : new Map();
+    const old = new Map((previous ? previous.checksums || [] : []).map(c => [c.name, c]));
+    const kept = new Set(version.kept || []);
+    const short = c => `${formatSize(c.size)} · sha256 <code>${this.esc(c.sha256.slice(0, 12))}…</code>`;
+    const rows = (version.checksums || []).map(c => {
+      const was = old.get(c.name);
+      const state = !previous ? 'added' : kept.has(c.name) ? 'kept' : !was ? 'added' : was.sha256 === c.sha256 ? 'same' : 'changed';
+      const label = state === 'kept' ? this.t('change-kept', {version: previous.version}) : this.t(`change-${state}`);
+      const diff = state === 'changed' && TEXT_FILE_RE.test(c.name) && now.has(c.name) && before.has(c.name) ?
+          ` <button class="btn-sm" data-diff-old="${this.esc(before.get(c.name))}" data-diff-new="${this.esc(now.get(c.name))}"
+               data-name="${this.esc(c.name)}">${this.esc(this.t('show-diff'))}</button>` : '';
+      return `<li class="change change-${state}"><span class="change-tag">${this.esc(label)}</span>
+          <code>${this.esc(c.name)}</code> <span class="community-hint">${short(c)}</span>${diff}</li>`;
+    });
+    if (previous) {
+      const names = new Set((version.checksums || []).map(c => c.name));
+      for (const c of previous.checksums || []) {
+        if (!names.has(c.name)) {
+          rows.push(`<li class="change change-removed"><span class="change-tag">${this.esc(this.t('change-removed'))}</span>
+              <code>${this.esc(c.name)}</code> <span class="community-hint">${short(c)}</span></li>`);
+        }
+      }
+    }
+    if (!rows.length) return '';
+    return `
+      <div class="community-changes">
+        <div class="community-hint">${this.esc(previous ?
+            this.t('changes-vs', {version: previous.version}) : this.t('changes-first'))}</div>
+        <ul class="change-list">${rows.join('')}</ul>
+        <div class="community-diff" hidden></div>
+      </div>`;
+  }
+
+  bindDiffButtons(root) {
+    root.querySelectorAll('[data-diff-old]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const box = btn.closest('.community-changes').querySelector('.community-diff');
+        if (box.dataset.name === btn.dataset.name && !box.hidden) {
+          box.hidden = true;
+          btn.textContent = this.t('show-diff');
+          return;
+        }
+        root.querySelectorAll('[data-diff-old]').forEach(other => { other.textContent = this.t('show-diff'); });
+        box.dataset.name = btn.dataset.name;
+        box.hidden = false;
+        box.textContent = this.t('loading');
+        try {
+          const [before, after] = await Promise.all([
+            this.fetchFile(btn.dataset.diffOld).then(b => b.text()),
+            this.fetchFile(btn.dataset.diffNew).then(b => b.text()),
+          ]);
+          box.innerHTML = `<div class="community-hint"><code>${this.esc(btn.dataset.name)}</code></div>${this.renderDiff(before, after)}`;
+          btn.textContent = this.t('hide-diff');
+        } catch (error) {
+          box.textContent = this.t('error', {message: error.message});
+        }
+      });
+    });
+  }
+
+  /** Changed lines with 3 lines around them; longer unchanged runs fold into one line. */
+  renderDiff(before, after) {
+    const ops = lineDiff(before, after);
+    if (!ops) return `<p class="community-hint">${this.esc(this.t('diff-too-big'))}</p>`;
+    const CONTEXT = 3;
+    const near = ops.map(() => false);
+    ops.forEach(([kind], i) => {
+      if (kind === ' ') return;
+      for (let k = Math.max(0, i - CONTEXT); k <= Math.min(ops.length - 1, i + CONTEXT); k++) near[k] = true;
+    });
+    const lines = [];
+    let skipped = 0;
+    const flush = () => {
+      if (skipped) lines.push(`<span class="diff-skip">${this.esc(this.t('diff-same-lines', {n: skipped}))}</span>`);
+      skipped = 0;
+    };
+    ops.forEach(([kind, text], i) => {
+      if (!near[i]) {
+        skipped++;
+        return;
+      }
+      flush();
+      const cls = kind === '+' ? 'diff-add' : kind === '-' ? 'diff-del' : 'diff-ctx';
+      lines.push(`<span class="${cls}">${kind} ${this.esc(text)}</span>`);
+    });
+    flush();
+    // Every line is its own block, so they are joined without newlines
+    return `<pre class="diff">${lines.join('')}</pre>`;
+  }
+
+  // --- Moderation log ----------------------------------------------------------
+
+  /** One line of the log: when, who, what, on what, and the note or change. */
+  renderLogEntry(e) {
+    const d = e.detail || {};
+    const targets = [];
+    if (e.app_slug) targets.push(`<code>${this.esc(e.app_slug)}</code>`);
+    if (e.version) targets.push(`<strong>${this.esc(e.version)}</strong>`);
+    // On an item or a version the user is its owner; on a hand-over, the new one (in from → to)
+    if (e.user_login && e.action !== 'item.owner') {
+      targets.push(/^(item|version)\./.test(e.action) ?
+          `<span class="community-hint">(@${this.esc(e.user_login)})</span>` : `@${this.esc(e.user_login)}`);
+    }
+    const facts = [];
+    const value = v => v === null || v === undefined || v === '' ? '—' : String(v);
+    if (d.from !== undefined || d.to !== undefined) {
+      const name = e.action === 'user.role' ? v => this.roleName(v) : value;
+      facts.push(`${this.esc(name(d.from))} → ${this.esc(name(d.to))}`);
+    }
+    if (d.latest === false) facts.push(this.esc(this.t('log-not-latest')));
+    if (Array.isArray(d.fields)) facts.push(this.esc(this.t('log-fields', {fields: d.fields.join(', ')})));
+    if (typeof d.trusted === 'boolean') facts.push(this.esc(this.t(d.trusted ? 'log-trusted-yes' : 'log-trusted-no')));
+    for (const key of ['sessions', 'ratings', 'hidden', 'versions']) {
+      if (typeof d[key] === 'number') facts.push(this.esc(this.t('log-count', {n: d[key]})));
+    }
+    if (d.draft) facts.push(this.esc(this.t('log-draft')));
+    if (d.replaced) facts.push(this.esc(this.t('log-replaced')));
+    const quote = d.note || d.reason;
+    return `
+      <div class="log-entry">
+        <div>
+          <span class="community-hint">${this.esc(this.formatTime(e.created_at))}</span>
+          <strong>${e.actor ? `@${this.esc(e.actor)}` : this.esc(this.t('log-system'))}</strong>
+          ${this.esc(this.t(`log-${e.action}`))} ${targets.join(' ')}
+          ${facts.length ? `<span class="community-hint">· ${facts.join(' · ')}</span>` : ''}
+        </div>
+        ${quote ? `<div class="community-note">${this.esc(quote)}</div>` : ''}
+      </div>`;
+  }
+
+  /** A short log of one item or one user, inside Manage and Details. */
+  renderLogSection(log, filter) {
+    return `
+      <h4>${this.esc(this.t('mod-log'))}</h4>
+      ${log.items.length ? `<div class="log-list">${log.items.map(e => this.renderLogEntry(e)).join('')}</div>` :
+          `<p class="community-hint">${this.esc(this.t('log-empty'))}</p>`}
+      ${log.has_more ? `<button class="btn-sm" data-log-open="${this.esc(JSON.stringify(filter))}">${this.esc(this.t('log-open'))}</button>` : ''}`;
+  }
+
+  bindLogOpen(root) {
+    root.querySelectorAll('[data-log-open]').forEach(btn => btn.addEventListener('click', () => {
+      this.logFilter = JSON.parse(btn.dataset.logOpen);
+      this.modStatus = 'log';
+      this.show('mod');
+    }));
+  }
+
+  /** The Log tab: newest first, 50 at a time, for one item or one user if asked. */
+  async showLog(filter) {
+    const current = this.logFilter || {};
+    const query = (before) => {
+      const params = new URLSearchParams();
+      if (current.app) params.set('app', current.app);
+      if (current.user) params.set('user', current.user);
+      if (before) params.set('before', before);
+      const text = params.toString();
+      return `/mod/log${text ? `?${text}` : ''}`;
+    };
+    const first = await this.request('GET', query());
+    const box = this.container();
+    box.innerHTML = `
+      ${filter}
+      <h3 class="community-title">${this.esc(this.t('log-title'))}</h3>
+      <p class="community-hint">${this.esc(this.t('log-hint'))}</p>
+      <form class="community-form log-filter">
+        <div class="form-row">
+          <label class="form-field"><span class="form-label">${this.esc(this.t('log-filter-app'))}</span>
+            <input name="app" value="${this.esc(current.app || '')}" autocomplete="off" spellcheck="false"></label>
+          <label class="form-field"><span class="form-label">${this.esc(this.t('log-filter-user'))}</span>
+            <input name="user" value="${this.esc(current.user || '')}" autocomplete="off" spellcheck="false"></label>
+        </div>
+        <div class="form-actions">
+          <button class="download-btn" type="submit">${this.esc(this.t('log-apply'))}</button>
+          ${current.app || current.user ? `<button class="btn-sm" type="button" data-log-reset>${this.esc(this.t('log-reset'))}</button>` : ''}
+        </div>
+      </form>
+      <div class="log-list">${first.items.length ? first.items.map(e => this.renderLogEntry(e)).join('') :
+          `<p class="community-hint">${this.esc(this.t('log-empty'))}</p>`}</div>
+      <button class="btn-sm" data-log-more ${first.has_more ? '' : 'hidden'}>${this.esc(this.t('log-more'))}</button>`;
+
+    const form = box.querySelector('.log-filter');
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      this.logFilter = {
+        app: form.elements.app.value.trim(),
+        user: form.elements.user.value.trim().replace(/^@/, ''),
+      };
+      this.show('mod');
+    });
+    box.querySelector('[data-log-reset]')?.addEventListener('click', () => {
+      this.logFilter = {};
+      this.show('mod');
+    });
+    const list = box.querySelector('.log-list');
+    const more = box.querySelector('[data-log-more]');
+    let last = first.items.length ? first.items[first.items.length - 1].id : null;
+    more.addEventListener('click', async () => {
+      try {
+        const page = await this.request('GET', query(last));
+        list.insertAdjacentHTML('beforeend', page.items.map(e => this.renderLogEntry(e)).join(''));
+        if (page.items.length) last = page.items[page.items.length - 1].id;
+        more.hidden = !page.has_more;
+      } catch (error) {
+        alert(this.t('error', {message: error.message}));
+      }
+    });
+  }
+
   saveBlob(blob, name) {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -1575,6 +2086,10 @@ class CommunityUI {
       }
       if (action === 'unhide') {
         await this.request('PATCH', path, {status: 'published'});
+      }
+      if (action === 'delete') {
+        if (!confirm(this.t('confirm-delete-draft', {slug}))) return;
+        await this.request('DELETE', path, {confirm: slug});
       }
       await this.showMyApps();
     } catch (error) {
@@ -1639,6 +2154,7 @@ class CommunityUI {
       ...statuses.map(s => [s, this.t(`status-${s}`)]),
       ...(this.can('items.edit') ? [['apps', this.t('mod-apps')]] : []),
       ...(this.can('users.view') ? [['users', this.t('mod-users')]] : []),
+      ...(this.can('log') ? [['log', this.t('mod-log')]] : []),
       ['roles', this.t('mod-roles')],
     ];
     if (!tabs.some(([s]) => s === this.modStatus)) this.modStatus = tabs[0][0];
@@ -1651,8 +2167,9 @@ class CommunityUI {
     const bindTabs = (box) => box.querySelectorAll('[data-status]').forEach(btn => {
       btn.addEventListener('click', () => {
         this.modStatus = btn.dataset.status;
-        // A search is kept only for a jump from a user to their item
+        // A search is kept only for a jump from a user to their item, or into the log
         this.modSearch = '';
+        this.logFilter = {};
         this.show('mod');
       });
     });
@@ -1663,6 +2180,11 @@ class CommunityUI {
     }
     if (this.modStatus === 'roles') {
       await this.showRoles(filter);
+      bindTabs(this.container());
+      return;
+    }
+    if (this.modStatus === 'log') {
+      await this.showLog(filter);
       bindTabs(this.container());
       return;
     }
@@ -1707,6 +2229,7 @@ class CommunityUI {
       });
     });
     this.bindFileButtons(box);
+    this.bindDiffButtons(box);
   }
 
   /**
@@ -1930,9 +2453,10 @@ class CommunityUI {
   /** Everything about one item: fields, status, versions with files and review, reports, delete. */
   async renderItemPanel(panel, slug) {
     const path = `/apps/${encodeURIComponent(slug)}`;
-    const [app, reports] = await Promise.all([
+    const [app, reports, log] = await Promise.all([
       this.request('GET', path),
       this.request('GET', `/mod/reports?slug=${encodeURIComponent(slug)}`),
+      this.can('log') ? this.request('GET', `/mod/log?app=${encodeURIComponent(slug)}`) : null,
     ]);
     const n = app.name || {}, s = app.short_description || {}, d = app.description || {};
     const field = (id, label, value, tag = 'input') => `
@@ -1945,6 +2469,7 @@ class CommunityUI {
     // Imported items keep their historic author line; null shows the owner's login
     const authorLine = app.author === `@${app.owner.login}` ? '' : app.author;
     panel.innerHTML = `
+      ${app.mod_hidden ? this.renderModHidden(app, {forOwner: false}) : ''}
       <div class="community-form">
         <div class="form-row">${field('name_uk', 'name-uk', n.uk)}${field('name_en', 'name-en', n.en)}</div>
         <div class="form-row">${field('short_uk', 'short-uk', s.uk)}${field('short_en', 'short-en', s.en)}</div>
@@ -1967,6 +2492,8 @@ class CommunityUI {
       ${app.versions.length ? app.versions.map(v => `
         <div class="mod-version" data-version="${v.id}">
           ${this.renderVersion(v)}
+          ${v.status === 'pending_review' || v.status === 'pending_scan' ?
+              this.renderChanges(v, app.latest_version && app.latest_version.id !== v.id ? app.latest_version : null) : ''}
           <div class="community-actions">
             ${this.can('review') && v.status === 'pending_review' ? `<button class="download-btn" data-review="approve">${this.esc(this.t('approve'))}</button>` : ''}
             ${this.can('review') && v.status !== 'approved' && v.status !== 'rejected' && v.status !== 'infected' ?
@@ -1980,8 +2507,11 @@ class CommunityUI {
           <div class="community-hint">${this.esc(this.t('by'))} ${this.esc(r.reporter)} · ${this.esc(this.formatTime(r.created_at))}${
               r.resolved ? ` · ${this.esc(this.t('resolved'))}` :
                   ` · <button class="btn-sm" data-resolve-report="${r.id}">${this.esc(this.t('resolve'))}</button>`}</div>
-        </div>`).join('') : `<p class="community-hint">${this.esc(this.t('no-reports-item'))}</p>`}`;
+        </div>`).join('') : `<p class="community-hint">${this.esc(this.t('no-reports-item'))}</p>`}
+      ${log ? this.renderLogSection(log, {app: slug}) : ''}`;
     this.bindFileButtons(panel);
+    this.bindDiffButtons(panel);
+    this.bindLogOpen(panel);
 
     const get = (id) => panel.querySelector(`[data-field="${id}"]`).value.trim();
     const errorBox = panel.querySelector('.form-error');
@@ -2014,8 +2544,14 @@ class CommunityUI {
         author: get('author') || null,
       }), this.t('saved')));
     panel.querySelectorAll('[data-item="hide"], [data-item="publish"]').forEach(btn => btn.addEventListener('click', async () => {
-      if (btn.dataset.item === 'hide' && !confirm(this.t('confirm-hide'))) return;
-      if (await run(() => this.request('PATCH', path, {status: btn.dataset.item === 'hide' ? 'hidden' : 'published'}))) reload();
+      let body = {status: 'published'};
+      if (btn.dataset.item === 'hide') {
+        // The owner sees the reason in My apps; only a moderator brings the item back
+        const note = await this.askNote({title: this.t('hide-reason')});
+        if (note === null) return;
+        body = {status: 'hidden', note: note || undefined};
+      }
+      if (await run(() => this.request('PATCH', path, body))) reload();
     }));
     panel.querySelector('[data-item="delete"]')?.addEventListener('click', async () => {
       const typed = prompt(this.t('confirm-delete', {slug}), '');
@@ -2028,11 +2564,11 @@ class CommunityUI {
       const id = btn.closest('.mod-version').dataset.version;
       let body;
       if (btn.dataset.review === 'approve') {
-        const note = prompt(this.t('approve-note'), '');
+        const note = await this.askNote({title: this.t('approve-note')});
         if (note === null) return;
         body = {note: note || undefined};
       } else {
-        const note = prompt(this.t('reject-reason'), '');
+        const note = await this.askRejectReason();
         if (!note) return;
         body = {note};
       }
@@ -2046,7 +2582,10 @@ class CommunityUI {
   /** One user: profile, activity, items, reports; note, trusted, sessions, ratings, ban. */
   async renderUserPanel(panel, login) {
     const base = `/mod/users/${encodeURIComponent(login)}`;
-    const {user, stats, items, reports} = await this.request('GET', base);
+    const [{user, stats, items, reports}, log] = await Promise.all([
+      this.request('GET', base),
+      this.can('log') ? this.request('GET', `/mod/log?user=${encodeURIComponent(login)}`) : null,
+    ]);
     const facts = [user.location, user.company].filter(Boolean).map(f => this.esc(f));
     if (user.blog && /^https?:\/\//i.test(user.blog)) {
       facts.push(`<a href="${this.esc(user.blog)}" target="_blank" rel="noopener noreferrer nofollow ugc">${this.esc(user.blog)}</a>`);
@@ -2101,7 +2640,9 @@ class CommunityUI {
       ${reports.length ? reports.map(r => `
         <div class="community-note"><code>${this.esc(r.slug)}</code> ${this.esc(r.reason)}
           <span class="community-hint">· ${this.esc(this.formatTime(r.created_at))}${r.resolved ? ` · ${this.esc(this.t('resolved'))}` : ''}</span>
-        </div>`).join('') : `<p class="community-hint">${this.esc(this.t('no-reports-item'))}</p>`}`;
+        </div>`).join('') : `<p class="community-hint">${this.esc(this.t('no-reports-item'))}</p>`}
+      ${log ? this.renderLogSection(log, {user: login}) : ''}`;
+    this.bindLogOpen(panel);
 
     const errorBox = panel.querySelector('.form-error');
     const saved = panel.querySelector('.mod-saved');
@@ -2211,10 +2752,8 @@ class CommunityUI {
       </div>`;
   }
 
-  renderQueueItem({app, version}) {
+  renderQueueItem({app, version, previous}) {
     const name = app.name[this.app.currentLang] || app.name.uk || app.name.en || app.slug;
-    const checksums = (version.checksums || []).map(c =>
-        `<div class="community-hint"><code>${this.esc(c.name)}</code> · ${c.size} B · sha256 <code>${this.esc(c.sha256.slice(0, 16))}…</code></div>`).join('');
     const canApprove = version.status === 'pending_review';
     const canReject = version.status !== 'approved';
     return `
@@ -2239,7 +2778,7 @@ class CommunityUI {
         ${this.renderVersion(version)}
         ${version.scan_detail && version.status !== 'infected' ?
             `<div class="community-hint">${this.esc(this.t('scan-detail'))}: ${this.esc(version.scan_detail)}</div>` : ''}
-        ${checksums}
+        ${version.status === 'pending_review' || version.status === 'pending_scan' ? this.renderChanges(version, previous) : ''}
       </div>`;
   }
 
@@ -2248,12 +2787,12 @@ class CommunityUI {
     const id = card.dataset.version;
     try {
       if (btn.dataset.mod === 'approve') {
-        const note = prompt(this.t('approve-note'), '');
+        const note = await this.askNote({title: this.t('approve-note')});
         if (note === null) return;
         await this.request('POST', `/mod/versions/${id}/approve`, {note: note || undefined});
       }
       if (btn.dataset.mod === 'reject') {
-        const note = prompt(this.t('reject-reason'), '');
+        const note = await this.askRejectReason();
         if (!note) return;
         await this.request('POST', `/mod/versions/${id}/reject`, {note});
       }

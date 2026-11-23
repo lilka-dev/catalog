@@ -147,8 +147,9 @@ auth.get('/callback', async (c) => {
             redirect_uri: callbackUrl(c.env),
         }),
     });
-    const tokenBody = (await tokenResponse.json()) as { access_token?: string; error_description?: string };
-    if (!tokenBody.access_token) fail(502, tokenBody.error_description ?? 'GitHub did not return a token');
+    // GitHub answers an outage with an HTML page: say so instead of a 500
+    const tokenBody = (await tokenResponse.json().catch(() => ({}))) as { access_token?: string; error_description?: string };
+    if (!tokenBody.access_token) fail(502, tokenBody.error_description ?? 'GitHub did not return a token, try again');
 
     const userResponse = await fetch('https://api.github.com/user', {
         headers: {
@@ -157,8 +158,8 @@ auth.get('/callback', async (c) => {
             'User-Agent': 'lilka-catalog-api',
         },
     });
-    if (!userResponse.ok) fail(502, 'could not read the GitHub profile');
-    const gh = (await userResponse.json()) as GithubUser;
+    const gh = userResponse.ok ? ((await userResponse.json().catch(() => null)) as GithubUser | null) : null;
+    if (!gh || typeof gh.id !== 'number' || typeof gh.login !== 'string') fail(502, 'could not read the GitHub profile');
 
     const token = await createSession(c.env, gh);
     // Best effort: a GitHub hiccup must not break the sign-in itself
