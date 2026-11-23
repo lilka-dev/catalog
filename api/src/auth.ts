@@ -1,6 +1,7 @@
 import { Hono, type MiddlewareHandler } from 'hono';
-import type { AppEnv, Env, Role, User } from './env';
-import { allowedOrigins, csv, fail, randomToken, requireUser, sha256Hex, signToken, verifyToken } from './util';
+import type { AppEnv, Env, User } from './env';
+import { MATRIX, effectiveRole } from './permissions';
+import { allowedOrigins, fail, randomToken, requireUser, sha256Hex, signToken, verifyToken } from './util';
 
 const SESSION_DAYS = 30;
 const STATE_MINUTES = 10;
@@ -20,15 +21,18 @@ export const sessionMiddleware: MiddlewareHandler<AppEnv> = async (c, next) => {
     const match = /^Bearer\s+(\S+)$/.exec(header);
     if (match) {
         const tokenHash = await sha256Hex(match[1]);
-        const user = await c.env.DB.prepare(
-            `SELECT u.id, u.login, u.name, u.avatar_url, u.role, u.trusted
-               FROM sessions s JOIN users u ON u.id = s.user_id
+        // Still one indexed lookup: staff is keyed by user id
+        const row = await c.env.DB.prepare(
+            `SELECT u.id, u.login, u.name, u.avatar_url, u.role, u.trusted, st.role AS staff_role
+               FROM sessions s JOIN users u ON u.id = s.user_id LEFT JOIN staff st ON st.user_id = u.id
               WHERE s.token_hash = ? AND s.expires_at > datetime('now')`,
         )
             .bind(tokenHash)
-            .first<User>();
-        if (user) {
-            c.set('user', user);
+            .first<Omit<User, 'role'> & { role: string; staff_role: string | null }>();
+        if (row) {
+            const { staff_role, ...user } = row;
+            // A role granted or taken away applies at the next request, not the next sign-in
+            c.set('user', { ...user, role: effectiveRole(user.role, staff_role) });
             c.set('tokenHash', tokenHash);
         }
     }
@@ -174,7 +178,8 @@ auth.post('/logout', async (c) => {
 
 /**
  * The session check the site makes once per page load. It also carries the
- * user's own ratings, so showing "your rating" costs no request per app.
+ * user's own ratings, so showing "your rating" costs no request per app, and
+ * what their role lets them do, so the site shows only those controls.
  */
 auth.get('/me', async (c) => {
     const user = requireUser(c);
@@ -183,23 +188,22 @@ auth.get('/me', async (c) => {
     )
         .bind(user.id)
         .all<{ slug: string; stars: number }>();
-    return c.json({ user, ratings: Object.fromEntries(results.map((r) => [r.slug, r.stars])) });
+    return c.json({
+        user: { ...user, permissions: MATRIX[user.role] },
+        ratings: Object.fromEntries(results.map((r) => [r.slug, r.stars])),
+    });
 });
 
 /**
  * Creates or refreshes the user and opens a session.
  *
- * The moderator list in config is the single source of truth: removing an id
- * from it demotes that user on their next sign-in. A ban set in the database
+ * Signing in never changes a role. Roles live in the staff table, read on
+ * every request (sessionMiddleware), keyed by GitHub numeric id, never by
+ * login: a login is freed when its owner renames the account, and whoever
+ * registers it next must not inherit the role. A ban set in the database
  * survives every sign-in.
- *
- * MODERATORS holds GitHub numeric ids, not logins: a login is freed when its
- * owner renames the account, and whoever registers it next would otherwise
- * sign in as a moderator.
  */
 export async function createSession(env: Env, gh: GithubUser): Promise<string> {
-    const moderators = csv(env.MODERATORS);
-    const role: Role = moderators.includes(String(gh.id)) ? 'moderator' : 'user';
     const token = randomToken();
     const tokenHash = await sha256Hex(token);
 
@@ -212,7 +216,7 @@ export async function createSession(env: Env, gh: GithubUser): Promise<string> {
         ),
         env.DB.prepare(
             `INSERT INTO users (id, login, name, avatar_url, role, bio, blog, location, company)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+             VALUES (?1, ?2, ?3, ?4, 'user', ?5, ?6, ?7, ?8)
              ON CONFLICT (id) DO UPDATE SET
                  login = excluded.login,
                  name = excluded.name,
@@ -221,13 +225,13 @@ export async function createSession(env: Env, gh: GithubUser): Promise<string> {
                  blog = excluded.blog,
                  location = excluded.location,
                  company = excluded.company,
-                 role = CASE WHEN users.role = 'banned' THEN 'banned' ELSE excluded.role END`,
+                 -- Clears the 'moderator' left from before migration 0009
+                 role = CASE WHEN users.role = 'banned' THEN 'banned' ELSE 'user' END`,
         ).bind(
             gh.id,
             gh.login,
             profileText(gh.name, 100),
             gh.avatar_url,
-            role,
             profileText(gh.bio, 300),
             profileUrl(gh.blog),
             profileText(gh.location, 100),

@@ -102,18 +102,55 @@ localStorage.setItem('lilka-api-url', 'http://localhost:8787')
 The copied `site/apps/`, `site/wallpapers/`, `site/mods/` and
 `site/authors.json` are not committed.
 
-## Moderators
+## Roles and moderation
 
-Moderators are GitHub numeric user ids in `MODERATORS` of `api/wrangler.toml`.
-They see a **Moderation** tab: versions waiting for review with code and image
-preview, checksums and the antivirus result; approve, reject with a reason, ban
-an author; open reports. **All items** lists every app, wallpaper and mod with
-an owner selector and **Manage**: edit every field including the author
-line, publish or hide, review each version with its files, see and resolve
-the item's reports, delete it for good. **Users** lists everyone who has
-signed in; **Details** shows their activity, items and reports, and lets a
-moderator mark them trusted (no item limits; still scanned and reviewed),
-keep a private note, end their sessions, remove their ratings, ban or unban.
+Who may do what is one table, `MATRIX` in
+[`api/src/permissions.ts`](api/src/permissions.ts); the API checks
+permissions, never role names, and the site shows the same table in
+**Moderation → Roles**:
+
+| Permission | Main admin | Admin | Moderator | User |
+|---|:-:|:-:|:-:|:-:|
+| `review`: preview uploads, approve, reject | ✓ | ✓ | ✓ | |
+| `reports`: see and close reports | ✓ | ✓ | ✓ | |
+| `items.edit`: edit any item, hide or publish it, change its author and owner | ✓ | ✓ | ✓ | |
+| `users.view`: every user with their activity | ✓ | ✓ | ✓ | |
+| `users.manage`: trust authors, keep notes, end sessions, remove ratings | ✓ | ✓ | ✓ | |
+| `users.ban`: ban and unban | ✓ | ✓ | ✓ | |
+| `limits.exempt`: no limits on items, uploads and changes | ✓ | ✓ | ✓ | |
+| `items.delete`: delete an item for good | ✓ | ✓ | | |
+| `items.import`: import from the old repository | ✓ | ✓ | | |
+| `roles.moderator`: make and remove moderators | ✓ | ✓ | | |
+| `roles.admin`: make and remove admins | ✓ | | | |
+| `roles.main_admin`: make and remove main admins (not themselves) | ✓ | | | |
+
+- Every role is granted in **Moderation → Roles** or in a user's **Details**,
+  to anyone who has signed in at least once, and applies at their next
+  request. Roles are kept in D1 (`staff`, migration 0009) with who granted
+  them and when.
+- Nobody changes their own role. Admins make and remove moderators, main
+  admins every role, including other main admins; so there is always at least
+  one main admin. Staff are not banned: whoever may take the role away does
+  that first.
+- With no main admin left (or none yet, on a new database), someone with
+  access to the Cloudflare account grants the first one:
+
+  ```bash
+  cd api
+  npx wrangler d1 execute lilka-catalog --remote --command \
+    "INSERT INTO staff (user_id, role) SELECT id, 'main_admin' FROM users WHERE login = '<github-login>'"
+  ```
+
+The **Moderation** tab shows each staff member the parts their role allows:
+versions waiting for review with code and image preview, checksums and the
+antivirus result; approve, reject with a reason, ban an author; open reports.
+**All items** lists every app, wallpaper and mod with an owner selector and
+**Manage**: edit every field including the author line, publish or hide,
+review each version with its files, see and resolve the item's reports,
+delete it for good (admins). **Users** lists everyone who has signed in;
+**Details** shows their activity, items and reports, and lets a moderator
+mark them trusted (no item limits; still scanned and reviewed), keep a
+private note, end their sessions, remove their ratings, ban or unban.
 
 New uploads are announced in a GitHub issue labelled `moderation` (see
 [api/README.md](api/README.md#lifecycle-of-an-upload)).

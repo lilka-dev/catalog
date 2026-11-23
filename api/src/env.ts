@@ -11,7 +11,6 @@ export interface Env {
     PUBLIC_URL: string;
     GITHUB_CLIENT_ID: string;
     ALLOWED_ORIGINS: string;
-    MODERATORS: string;
     SCAN_REPO: string;
     CATALOG_REPO: string;
 
@@ -22,13 +21,15 @@ export interface Env {
     GITHUB_DISPATCH_TOKEN?: string;
 }
 
-export type Role = 'user' | 'moderator' | 'banned';
+/** The role a user acts with; who may do what is in permissions.ts. */
+export type Role = 'main_admin' | 'admin' | 'moderator' | 'user' | 'banned';
 
 export interface User {
     id: number;
     login: string;
     name: string | null;
     avatar_url: string | null;
+    /** Effective role: a ban, then the staff table (permissions.ts effectiveRole). */
     role: Role;
     /** Set by a moderator: no per-account item limits (migration 0008). */
     trusted: number;

@@ -12,6 +12,7 @@ import {
     type EntryType,
 } from './util';
 import { MAX_UPLOAD_BYTES, createVersion, objectKey, readVersionForm } from './versions';
+import { can } from './permissions';
 
 const PAGE_SIZE = 24;
 /** Unreviewed uploads per user: keeps one account from flooding the queue. */
@@ -173,13 +174,13 @@ export async function findApp(env: Env, slug: string): Promise<AppRow | null> {
     return env.DB.prepare(`${APP_SELECT} WHERE a.slug = ?`).bind(slug).first<AppRow>();
 }
 
-/** Moderators, and authors a moderator marked trusted, skip the per-account item limits. */
+/** Staff, and authors a moderator marked trusted, skip the per-account item limits. */
 function limitsLifted(user: User): boolean {
-    return user.role === 'moderator' || !!user.trusted;
+    return can(user, 'limits.exempt') || !!user.trusted;
 }
 
 function canManage(user: User | null, app: AppRow): boolean {
-    return !!user && user.role !== 'banned' && (user.id === app.owner_id || user.role === 'moderator');
+    return !!user && user.role !== 'banned' && (user.id === app.owner_id || can(user, 'items.edit'));
 }
 
 /* ------------------------------------------------------------ input ------ */
@@ -387,7 +388,7 @@ apps.patch('/:slug', async (c) => {
 
     // Imported items were checked against the import's limits, longer than a
     // new submission's; a moderator editing one must be able to save it
-    const mod = user.role === 'moderator';
+    const mod = can(user, 'items.edit');
     if (body.name !== undefined) {
         const name = readLocalized(body.name, 'name', mod ? 200 : 64);
         if (!name.uk && !name.en) fail(400, 'name cannot be empty');
@@ -406,7 +407,7 @@ apps.patch('/:slug', async (c) => {
         set('description_en', description.en);
     }
     if (body.sources_url !== undefined) {
-        const sources = readSourcesUrl(body.sources_url, { strict: user.role !== 'moderator' });
+        const sources = readSourcesUrl(body.sources_url, { strict: !mod });
         set('sources_url', sources);
         set('sources_type', sourcesTypeOf(sources));
     }
@@ -427,7 +428,7 @@ apps.patch('/:slug', async (c) => {
     // Imported apps belong to the catalog account and show the historic author
     // name; a moderator hands them over once the author signs in
     if (body.author !== undefined || body.owner !== undefined) {
-        if (user.role !== 'moderator') fail(403, 'only moderators can change the author or owner');
+        if (!mod) fail(403, 'only moderators can change the author or owner');
         if (body.author !== undefined) {
             if (body.author !== null && (typeof body.author !== 'string' || body.author.length > 64)) {
                 fail(400, 'author must be a short string or null');
@@ -470,8 +471,8 @@ apps.patch('/:slug', async (c) => {
  */
 apps.post('/:slug/versions', async (c) => {
     const user = requireUser(c);
-    // Each upload can be 24 MB of R2 writes; moderators are exempt for imports
-    if (user.role !== 'moderator') {
+    // Each upload can be 24 MB of R2 writes; staff are exempt for imports
+    if (!can(user, 'limits.exempt')) {
         const { success } = await c.env.UPLOAD_LIMITER.limit({ key: `user:${user.id}` });
         if (!success) fail(429, 'too many uploads in a short time, try again in a minute');
     }
@@ -578,7 +579,7 @@ users.get('/:login/apps', async (c) => {
         .bind(login)
         .first<{ id: number }>();
     if (!owner) fail(404, 'user not found');
-    const own = viewer?.id === owner.id || viewer?.role === 'moderator';
+    const own = viewer?.id === owner.id || can(viewer, 'items.edit');
     const { results } = await c.env.DB.prepare(
         `${APP_SELECT} WHERE a.owner_id = ? ${own ? '' : `AND a.status = 'published'`} ORDER BY a.updated_at DESC`,
     )
@@ -629,7 +630,7 @@ export async function serveFile(c: Context<AppEnv>) {
     // Owners and moderators only (My apps, Moderation): the public downloads
     // the same files from the Pages mirror, which costs the Worker nothing
     const user = c.get('user');
-    if (!user || user.role === 'banned' || (user.id !== row.owner_id && user.role !== 'moderator')) {
+    if (!user || user.role === 'banned' || (user.id !== row.owner_id && !can(user, 'review') && !can(user, 'items.edit'))) {
         fail(404, 'file not found');
     }
 
