@@ -6,6 +6,7 @@ import { auth, sessionMiddleware } from './auth';
 import { apps, serveFile, users } from './apps';
 import { moderation, scan } from './moderation';
 import { catalog } from './catalog';
+import { can } from './permissions';
 import { allowedOrigins, fail, safeEqual } from './util';
 
 const app = new Hono<AppEnv>();
@@ -39,8 +40,8 @@ const ipLimit: MiddlewareHandler<AppEnv> = async (c, next) => {
 
 const writeLimit: MiddlewareHandler<AppEnv> = async (c, next) => {
     const user = c.get('user');
-    // Moderators are few and trusted, and the one-time import posts dozens of apps a minute
-    if (user && user.role !== 'moderator' && c.req.method !== 'GET' && c.req.method !== 'HEAD' && c.req.method !== 'OPTIONS') {
+    // Staff are few and trusted, and the one-time import posts dozens of apps a minute
+    if (user && !can(user, 'limits.exempt') && c.req.method !== 'GET' && c.req.method !== 'HEAD' && c.req.method !== 'OPTIONS') {
         const { success } = await c.env.WRITE_LIMITER.limit({ key: `user:${user.id}` });
         if (!success) fail(429, 'too many changes in a short time, try again in a minute');
     }

@@ -14,13 +14,18 @@ USER_TOKEN=smoke-user-token
 MOD_TOKEN=smoke-mod-token
 sha() { printf '%s' "$1" | shasum -a 256 | cut -d' ' -f1; }
 
+# smoke-mod has users.role = 'moderator' and a staff row, as migration 0009
+# leaves the moderators it moves over
 npx wrangler d1 execute lilka-catalog --local --command "
-DELETE FROM sessions; DELETE FROM ratings; DELETE FROM reports; UPDATE apps SET latest_version_id = NULL; DELETE FROM versions; DELETE FROM apps; DELETE FROM users WHERE id != 0;
+DELETE FROM sessions; DELETE FROM ratings; DELETE FROM reports; DELETE FROM staff; UPDATE apps SET latest_version_id = NULL; DELETE FROM versions; DELETE FROM apps; DELETE FROM users WHERE id != 0;
 INSERT INTO users (id, login, role, bio, blog) VALUES (1, 'smoke-dev', 'user', 'Makes <b>tests</b>', 'https://example.com/');
-INSERT INTO users (id, login, role) VALUES (2, 'smoke-mod', 'moderator'), (3, 'smoke-fan', 'user');
+INSERT INTO users (id, login, role) VALUES (2, 'smoke-mod', 'moderator'), (3, 'smoke-fan', 'user'), (7, 'smoke-admin', 'user'), (8, 'smoke-boss', 'user');
+INSERT INTO staff (user_id, role) VALUES (2, 'moderator'), (7, 'admin'), (8, 'main_admin');
 INSERT INTO sessions VALUES ('$(sha $USER_TOKEN)', 1, datetime('now', '+1 day'));
 INSERT INTO sessions VALUES ('$(sha $MOD_TOKEN)', 2, datetime('now', '+1 day'));
-INSERT INTO sessions VALUES ('$(sha fan-token)', 3, datetime('now', '+1 day'));" >/dev/null
+INSERT INTO sessions VALUES ('$(sha fan-token)', 3, datetime('now', '+1 day'));
+INSERT INTO sessions VALUES ('$(sha admin-token)', 7, datetime('now', '+1 day'));
+INSERT INTO sessions VALUES ('$(sha boss-token)', 8, datetime('now', '+1 day'));" >/dev/null
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
@@ -40,6 +45,8 @@ call() { # expected name curl-args...
 }
 user=(-H "Authorization: Bearer $USER_TOKEN")
 mod=(-H "Authorization: Bearer $MOD_TOKEN")
+admin=(-H "Authorization: Bearer admin-token")
+boss=(-H "Authorization: Bearer boss-token")
 fan=(-H "Authorization: Bearer fan-token")
 scanner=(-H "Authorization: Bearer $SCAN_SECRET")
 mirror=(-H "Authorization: Bearer $MIRROR_SECRET")
@@ -155,7 +162,8 @@ call 409 "infected version cannot be approved" "${mod[@]}" "${json[@]}" -X POST 
 call 200 "catalog still serves the clean version" "${mirror[@]}" "$API/catalog/apps/smoke-hello/index.json"
 jq -e '.entryfile.location == "hello.lua"' "$work/body" >/dev/null || { echo "FAIL infected leaked"; exit 1; }
 
-call 201 "moderator imports a repo app" "${mod[@]}" -X POST "$API/mod/import" \
+call 403 "a moderator cannot import" "${mod[@]}" -X POST "$API/mod/import" -F 'meta={}'
+call 201 "an admin imports a repo app" "${admin[@]}" -X POST "$API/mod/import" \
     -F 'meta={"slug":"Smoke_Import","kind":"app","author":"@smoke-dev","name":{"uk":"Імпорт"},"short_description":{"uk":"з репозиторію\n"},"sources":{"type":"git","origin":"https://github.com/smoke-dev/x"}}' \
     -F version=1.0.0 -F keira_version=1.0.0 -F entry_type=lua -F "entry=@$work/hello.lua"
 import_id=$(jq -r .version_id "$work/body")
@@ -254,9 +262,10 @@ call 201 "moderator makes an item to delete" "${mod[@]}" "${json[@]}" -X POST "$
 call 201 "with a version" "${mod[@]}" -X POST "$API/apps/smoke-delete/versions" \
     -F version=1.0.0 -F keira_version=1.0.0 -F entry_type=lua -F "entry=@$work/hello.lua"
 delete_prefix=$(npx wrangler d1 execute lilka-catalog --local --json --command "SELECT v.storage_prefix FROM versions v JOIN apps a ON a.id = v.app_id WHERE a.slug = 'smoke-delete'" 2>/dev/null | jq -r '.[0].results[0].storage_prefix')
-call 400 "delete needs the slug repeated" "${mod[@]}" "${json[@]}" -X DELETE "$API/mod/apps/smoke-delete" -d '{"confirm":"smoke"}'
+call 400 "delete needs the slug repeated" "${admin[@]}" "${json[@]}" -X DELETE "$API/mod/apps/smoke-delete" -d '{"confirm":"smoke"}'
 call 403 "users cannot delete items" "${user[@]}" "${json[@]}" -X DELETE "$API/mod/apps/smoke-delete" -d '{"confirm":"smoke-delete"}'
-call 200 "moderator deletes the item" "${mod[@]}" "${json[@]}" -X DELETE "$API/mod/apps/smoke-delete" -d '{"confirm":"smoke-delete"}'
+call 403 "a moderator cannot delete items" "${mod[@]}" "${json[@]}" -X DELETE "$API/mod/apps/smoke-delete" -d '{"confirm":"smoke-delete"}'
+call 200 "an admin deletes the item" "${admin[@]}" "${json[@]}" -X DELETE "$API/mod/apps/smoke-delete" -d '{"confirm":"smoke-delete"}'
 call 404 "deleted item is gone" "${mod[@]}" "$API/apps/smoke-delete"
 r2_list() { curl -sS "$API/cdn-cgi/local/explorer/api/r2/buckets/lilka-catalog-files/objects?limit=1000" | jq -r '.result[].key'; }
 # The local bucket outlives the database between runs, so look only at this run's folders
@@ -311,6 +320,63 @@ call 200 "troll rates" -H "Authorization: Bearer troll-token" "${json[@]}" -X PU
 call 200 "moderator bans the troll" "${mod[@]}" -X POST "$API/mod/users/smoke-troll/ban"
 trolls=$(npx wrangler d1 execute lilka-catalog --local --json --command "SELECT COUNT(*) AS n FROM ratings WHERE user_id = 5" 2>/dev/null | jq -r '.[0].results[0].n')
 check "a ban removes the user's ratings" 0 "$trolls"
+
+# --- roles and permissions (permissions.ts) ------------------------------
+npx wrangler d1 execute lilka-catalog --local --command "
+INSERT INTO users (id, login, role) VALUES (9, 'smoke-new', 'user'), (10, 'smoke-legacy', 'moderator');
+INSERT INTO sessions VALUES ('$(sha new-token)', 9, datetime('now', '+1 day'));
+INSERT INTO sessions VALUES ('$(sha legacy-token)', 10, datetime('now', '+1 day'));" >/dev/null
+new=(-H "Authorization: Bearer new-token")
+has() { jq -r --arg p "$1" '.user.permissions | index($p) != null' "$work/body"; }
+call 200 "main admin session" "${boss[@]}" "$API/auth/me"
+check "a main admin can make admins and main admins" "main_admin true true" "$(jq -r .user.role "$work/body") $(has roles.admin) $(has roles.main_admin)"
+call 200 "moderator session" "${mod[@]}" "$API/auth/me"
+check "a moderator reviews, but neither deletes nor grants roles" "moderator true false false" \
+    "$(jq -r .user.role "$work/body") $(has review) $(has items.delete) $(has roles.moderator)"
+call 200 "admin session" "${admin[@]}" "$API/auth/me"
+check "an admin deletes and makes moderators, not admins" "admin true true false" \
+    "$(jq -r .user.role "$work/body") $(has items.delete) $(has roles.moderator) $(has roles.admin)"
+call 403 "users.role = moderator alone is no role" -H "Authorization: Bearer legacy-token" "$API/mod/queue"
+call 403 "the Roles tab is for staff" "${new[@]}" "$API/mod/roles"
+call 200 "a moderator reads the matrix" "${mod[@]}" "$API/mod/roles"
+jq -e '(.assignable == []) and (.matrix.moderator | index("roles.moderator") == null) and (.matrix.main_admin | index("roles.admin") != null)
+       and ([.staff[] | "\(.login):\(.role)"] == ["smoke-boss:main_admin", "smoke-admin:admin", "smoke-mod:moderator"])' "$work/body" >/dev/null && rm_=ok || rm_=bad
+check "roles: matrix and staff, highest role first" ok "$rm_"
+call 200 "the main admin may grant every role" "${boss[@]}" "$API/mod/roles"
+check "assignable for the main admin" '["main_admin","admin","moderator"]' "$(jq -c .assignable "$work/body")"
+role() { curl -sS -o "$work/body" -w '%{http_code}' -H "Authorization: Bearer $1" "${json[@]}" -X PUT "$API/mod/users/$2/role" -d "{\"role\":\"$3\"}"; }
+check "a moderator cannot grant roles" 403 "$(role "$MOD_TOKEN" smoke-new moderator)"
+check "owner is not a role" 400 "$(role boss-token smoke-new owner)"
+check "banned is not a role to grant" 400 "$(role boss-token smoke-new banned)"
+check "an admin makes a moderator" 200 "$(role admin-token smoke-new moderator)"
+call 200 "the new moderator reviews at once, no new sign-in" "${new[@]}" "$API/mod/queue"
+call 403 "but cannot delete items" "${new[@]}" "${json[@]}" -X DELETE "$API/mod/apps/smoke-case" -d '{"confirm":"smoke-case"}'
+check "an admin cannot make admins" 403 "$(role admin-token smoke-new admin)"
+check "nobody changes their own role" 409 "$(role admin-token smoke-admin user)"
+check "an admin cannot demote a main admin" 403 "$(role admin-token smoke-boss user)"
+check "the main admin makes an admin" 200 "$(role boss-token smoke-new admin)"
+check "who granted it is kept" "admin smoke-boss" "$(curl -sS "${boss[@]}" "$API/mod/users/smoke-new" | jq -r '"\(.user.role) \(.user.role_granted_by)"')"
+check "an admin cannot demote another admin" 403 "$(role admin-token smoke-new moderator)"
+call 409 "staff cannot be banned" "${admin[@]}" -X POST "$API/mod/users/smoke-new/ban"
+call 409 "a main admin cannot be banned" "${admin[@]}" -X POST "$API/mod/users/smoke-boss/ban"
+call 403 "a moderator cannot end an admin's sessions" "${mod[@]}" -X POST "$API/mod/users/smoke-new/sign-out"
+call 200 "the users list shows roles" "${mod[@]}" "$API/mod/users"
+check "users list: admin, main admin, a leftover is a user" "admin main_admin user" \
+    "$(jq -r '[.items[] | select(.login == "smoke-new" or .login == "smoke-boss" or .login == "smoke-legacy")] | sort_by(.login) | map(.role) | "\(.[2]) \(.[0]) \(.[1])"' "$work/body")"
+check "the main admin takes the role back" 200 "$(role boss-token smoke-new user)"
+call 403 "and it applies at the next request" "${new[@]}" "$API/mod/queue"
+check "an admin cannot make main admins" 403 "$(role admin-token smoke-new main_admin)"
+check "a main admin makes a second main admin" 200 "$(role boss-token smoke-new main_admin)"
+call 200 "the second main admin's session" "${new[@]}" "$API/auth/me"
+check "they can make main admins too" "main_admin true" "$(jq -r .user.role "$work/body") $(has roles.main_admin)"
+check "nobody steps down on their own, so one main admin always stays" 409 "$(role new-token smoke-new user)"
+check "one main admin takes the role from another" 200 "$(role boss-token smoke-new user)"
+call 403 "the former main admin is out" "${new[@]}" "$API/mod/roles"
+check "a banned user gets no role" 409 "$(role boss-token smoke-troll moderator)"
+check "an admin takes the moderator role back" 200 "$(role admin-token smoke-mod user)"
+call 403 "the former moderator is out" "${mod[@]}" "$API/mod/queue"
+leftover=$(npx wrangler d1 execute lilka-catalog --local --json --command "SELECT role FROM users WHERE id = 2" 2>/dev/null | jq -r '.[0].results[0].role')
+check "taking the role back also clears users.role = moderator" user "$leftover"
 
 # Last, because it uses up this IP's budget for a minute
 limited=$(seq 1 330 | xargs -P 30 -I{} curl -s -o /dev/null -w '%{http_code}\n' "$API/" | grep -c '^429$' || true)

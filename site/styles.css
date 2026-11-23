@@ -2397,3 +2397,85 @@ footer {
 .community-actions:has(.mod-owner) {
     align-items: flex-end;
 }
+
+/* Moderation → Roles: the permission matrix and the staff (community.js showRoles) */
+.role-matrix-wrap {
+    overflow-x: auto;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    margin-bottom: 0.75rem;
+}
+
+.role-matrix {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+
+.role-matrix th,
+.role-matrix td {
+    padding: 0.6rem 0.75rem;
+    border-bottom: 1px solid var(--border);
+    text-align: center;
+    vertical-align: middle;
+}
+
+.role-matrix tbody tr:last-child th,
+.role-matrix tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.role-matrix th[scope="row"],
+.role-matrix thead th:first-child {
+    text-align: left;
+    font-weight: 500;
+    min-width: 14rem;
+}
+
+.role-matrix thead th {
+    font-weight: 700;
+    white-space: nowrap;
+    background: var(--surface-light);
+}
+
+.role-matrix .is-you {
+    background: var(--primary-glow);
+}
+
+.role-name {
+    display: inline-block;
+}
+
+.role-name::first-letter {
+    text-transform: uppercase;
+}
+
+.perm-yes {
+    color: var(--success);
+    font-weight: 700;
+}
+
+.perm-no {
+    color: var(--text-muted);
+}
+
+.role-person {
+    display: flex;
+    gap: 0.75rem;
+    align-items: flex-start;
+}
+
+.role-person .account-avatar {
+    width: 40px;
+    height: 40px;
+    flex: none;
+}
+
+.mod-role {
+    min-width: 10rem;
+}
+
+.role-add {
+    margin-bottom: 2rem;
+}

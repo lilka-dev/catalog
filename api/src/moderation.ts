@@ -15,20 +15,34 @@ import {
     type LocalizedInput,
     type VersionRow,
 } from './apps';
-import { LOOSE_NAME_RE, dispatch, fail, parseJsonArray, readJson, requireModerator } from './util';
+import {
+    MATRIX,
+    PERMISSIONS,
+    ROLES,
+    assignableRoles,
+    effectiveRole,
+    isStaff,
+    outranks,
+    requirePermission,
+    requireStaff,
+    roleChangeRefusal,
+} from './permissions';
+import { LOOSE_NAME_RE, dispatch, fail, parseJsonArray, readJson } from './util';
 import { createVersion, deleteVersionFiles, objectKey, readVersionForm } from './versions';
 
 /* --------------------------------------------------------- moderators ------ */
 
 export const moderation = new Hono<AppEnv>();
 
+// Any staff role gets past here; every route then asks for its own permission
 moderation.use('*', async (c, next) => {
-    requireModerator(c);
+    requireStaff(c);
     await next();
 });
 
 /** Everything that waits for a human, oldest first. */
 moderation.get('/queue', async (c) => {
+    requirePermission(c, 'review');
     const status = c.req.query('status') ?? 'pending_review';
     const allowed = ['pending_scan', 'pending_review', 'infected', 'rejected', 'approved'];
     if (!allowed.includes(status)) fail(400, `status must be one of ${allowed.join(', ')}`);
@@ -76,7 +90,7 @@ async function loadVersion(c: Parameters<MiddlewareHandler<AppEnv>>[0], id: stri
 }
 
 moderation.post('/versions/:id/approve', async (c) => {
-    const moderator = requireModerator(c);
+    const moderator = requirePermission(c, 'review');
     const version = await loadVersion(c, c.req.param('id'));
     // An unscanned or infected upload must never become public by a misclick
     if (version.status !== 'pending_review') fail(409, `version is ${version.status}, not pending_review`);
@@ -100,7 +114,7 @@ moderation.post('/versions/:id/approve', async (c) => {
 });
 
 moderation.post('/versions/:id/reject', async (c) => {
-    const moderator = requireModerator(c);
+    const moderator = requirePermission(c, 'review');
     const version = await loadVersion(c, c.req.param('id'));
     if (version.status === 'approved') fail(409, 'version is already approved; hide the app instead');
     const { note } = await readJson<{ note?: unknown }>(c);
@@ -116,6 +130,7 @@ moderation.post('/versions/:id/reject', async (c) => {
 
 /** Open reports, or with ?slug= every report on that item, resolved ones included. */
 moderation.get('/reports', async (c) => {
+    requirePermission(c, 'reports');
     const slug = c.req.query('slug');
     const { results } = await (slug
         ? c.env.DB.prepare(
@@ -133,6 +148,7 @@ moderation.get('/reports', async (c) => {
 });
 
 moderation.post('/reports/:id/resolve', async (c) => {
+    requirePermission(c, 'reports');
     await c.env.DB.prepare(`UPDATE reports SET resolved = 1 WHERE id = ?`).bind(Number(c.req.param('id'))).run();
     return c.json({ ok: true });
 });
@@ -142,24 +158,29 @@ moderation.post('/reports/:id/resolve', async (c) => {
  * One query with the item counts; the catalog has a few hundred users at most.
  */
 moderation.get('/users', async (c) => {
+    requirePermission(c, 'users.view');
     const { results } = await c.env.DB.prepare(
-        `SELECT u.id, u.login, u.name, u.avatar_url, u.role, u.created_at, u.trusted, u.mod_note IS NOT NULL AS has_note,
+        `SELECT u.id, u.login, u.name, u.avatar_url, u.role, st.role AS staff_role, u.created_at, u.trusted,
+                u.mod_note IS NOT NULL AS has_note,
                 (SELECT COUNT(*) FROM apps a WHERE a.owner_id = u.id) AS items
-           FROM users u ORDER BY u.id = 0 DESC, u.login COLLATE NOCASE ASC LIMIT 1000`,
+           FROM users u LEFT JOIN staff st ON st.user_id = u.id
+          ORDER BY u.id = 0 DESC, u.login COLLATE NOCASE ASC LIMIT 1000`,
     ).all<{
         id: number;
         login: string;
         name: string | null;
         avatar_url: string | null;
         role: string;
+        staff_role: string | null;
         created_at: string;
         trusted: number;
         has_note: number;
         items: number;
     }>();
     return c.json({
-        items: results.map((u) => ({
+        items: results.map(({ staff_role, ...u }) => ({
             ...u,
+            role: effectiveRole(u.role, staff_role),
             trusted: !!u.trusted,
             has_note: !!u.has_note,
             // The catalog account is not a person: it holds imports until handed over
@@ -173,6 +194,7 @@ moderation.get('/users', async (c) => {
  * items tab: one query, the counts as subqueries over indexed columns.
  */
 moderation.get('/apps', async (c) => {
+    requirePermission(c, 'items.edit');
     const { results } = await c.env.DB.prepare(
         `SELECT a.slug, a.kind, a.status, a.author, a.name_uk, a.name_en, a.owner_id, a.created_at, a.updated_at,
                 u.login AS owner_login, cb.login AS creator_login,
@@ -230,6 +252,7 @@ moderation.get('/apps', async (c) => {
  * The body must repeat the slug, so a stray request cannot delete anything.
  */
 moderation.delete('/apps/:slug', async (c) => {
+    requirePermission(c, 'items.delete');
     const slug = c.req.param('slug');
     const { confirm } = await readJson<{ confirm?: unknown }>(c).catch(() => ({ confirm: undefined }));
     if (confirm !== slug) fail(400, 'confirm must repeat the slug');
@@ -252,10 +275,14 @@ moderation.delete('/apps/:slug', async (c) => {
     return c.json({ ok: true });
 });
 
+/** A user by login, with the role they act with and, for staff, who granted it. */
 async function findUser(c: Parameters<MiddlewareHandler<AppEnv>>[0]) {
-    const user = await c.env.DB.prepare(
-        `SELECT id, login, name, avatar_url, role, created_at, bio, blog, location, company, trusted, mod_note
-           FROM users WHERE login = ? COLLATE NOCASE`,
+    const row = await c.env.DB.prepare(
+        `SELECT u.id, u.login, u.name, u.avatar_url, u.role, u.created_at, u.bio, u.blog, u.location, u.company,
+                u.trusted, u.mod_note, st.role AS staff_role, st.granted_at AS role_granted_at,
+                g.login AS role_granted_by
+           FROM users u LEFT JOIN staff st ON st.user_id = u.id LEFT JOIN users g ON g.id = st.granted_by
+          WHERE u.login = ? COLLATE NOCASE`,
     )
         .bind(c.req.param('login'))
         .first<{
@@ -271,13 +298,18 @@ async function findUser(c: Parameters<MiddlewareHandler<AppEnv>>[0]) {
             company: string | null;
             trusted: number;
             mod_note: string | null;
+            staff_role: string | null;
+            role_granted_at: string | null;
+            role_granted_by: string | null;
         }>();
-    if (!user) fail(404, 'user not found');
-    return user;
+    if (!row) fail(404, 'user not found');
+    const { staff_role, ...user } = row;
+    return { ...user, role: effectiveRole(user.role, staff_role) };
 }
 
 /** Everything about one user for the Users tab, in one batch of indexed queries. */
 moderation.get('/users/:login', async (c) => {
+    requirePermission(c, 'users.view');
     const user = await findUser(c);
     const [items, stats, reports] = await c.env.DB.batch<Record<string, unknown>>([
         c.env.DB.prepare(
@@ -315,6 +347,7 @@ moderation.get('/users/:login', async (c) => {
 
 /** What moderators may change about a user; the profile itself comes from GitHub at every sign-in. */
 moderation.patch('/users/:login', async (c) => {
+    requirePermission(c, 'users.manage');
     const user = await findUser(c);
     const body = await readJson<{ trusted?: unknown; note?: unknown }>(c);
     const sets: string[] = [];
@@ -341,27 +374,34 @@ moderation.patch('/users/:login', async (c) => {
 
 /** Ends every session of the user, e.g. after a leaked token. They can sign in again. */
 moderation.post('/users/:login/sign-out', async (c) => {
+    const actor = requirePermission(c, 'users.manage');
     const user = await findUser(c);
+    if (user.id !== actor.id && isStaff(user.role) && !outranks(actor, user.role)) {
+        fail(403, 'only someone with a higher role can do this to them');
+    }
     const result = await c.env.DB.prepare(`DELETE FROM sessions WHERE user_id = ?`).bind(user.id).run();
     return c.json({ ok: true, sessions: result.meta.changes ?? 0 });
 });
 
 /** Removes every rating the user gave, e.g. a brigade; the averages follow with the next mirror run. */
 moderation.delete('/users/:login/ratings', async (c) => {
+    const actor = requirePermission(c, 'users.manage');
     const user = await findUser(c);
+    if (user.id !== actor.id && isStaff(user.role) && !outranks(actor, user.role)) {
+        fail(403, 'only someone with a higher role can do this to them');
+    }
     const result = await c.env.DB.prepare(`DELETE FROM ratings WHERE user_id = ?`).bind(user.id).run();
     return c.json({ ok: true, ratings: result.meta.changes ?? 0 });
 });
 
 /** A ban also hides every app of the user, drops their ratings and ends their sessions. */
 moderation.post('/users/:login/ban', async (c) => {
-    const user = await c.env.DB.prepare(`SELECT id, role FROM users WHERE login = ? COLLATE NOCASE`)
-        .bind(c.req.param('login'))
-        .first<{ id: number; role: string }>();
-    if (!user) fail(404, 'user not found');
+    requirePermission(c, 'users.ban');
+    const user = await findUser(c);
     // Banning the catalog account would hide every imported app at once
     if (user.id === 0) fail(409, 'the catalog account owns imported apps and cannot be banned');
-    if (user.role === 'moderator') fail(409, 'remove the user from MODERATORS first');
+    // A ban is not a way around the role rules: whoever may take the role away does that first
+    if (isStaff(user.role)) fail(409, `take the ${user.role} role away first (Roles)`);
     await c.env.DB.batch([
         c.env.DB.prepare(`UPDATE users SET role = 'banned' WHERE id = ?`).bind(user.id),
         c.env.DB.prepare(`UPDATE apps SET status = 'hidden', updated_at = datetime('now') WHERE owner_id = ?`).bind(
@@ -375,10 +415,57 @@ moderation.post('/users/:login/ban', async (c) => {
 });
 
 moderation.post('/users/:login/unban', async (c) => {
+    requirePermission(c, 'users.ban');
     await c.env.DB.prepare(`UPDATE users SET role = 'user' WHERE login = ? COLLATE NOCASE AND role = 'banned'`)
         .bind(c.req.param('login'))
         .run();
     return c.json({ ok: true });
+});
+
+/**
+ * The permission matrix, the staff with who granted each role, and the roles
+ * the viewer may grant: everything the Roles tab shows, in one request.
+ */
+moderation.get('/roles', async (c) => {
+    const viewer = requireStaff(c);
+    const { results } = await c.env.DB.prepare(
+        `SELECT u.id, u.login, u.name, u.avatar_url, st.role, st.granted_at, g.login AS granted_by
+           FROM staff st JOIN users u ON u.id = st.user_id LEFT JOIN users g ON g.id = st.granted_by
+          ORDER BY CASE st.role WHEN 'main_admin' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, u.login COLLATE NOCASE ASC`,
+    ).all();
+    return c.json({
+        roles: ROLES,
+        permissions: PERMISSIONS,
+        matrix: MATRIX,
+        assignable: assignableRoles(viewer),
+        staff: results,
+    });
+});
+
+/**
+ * Grants a staff role or takes it back: `{ "role": "main_admin" | "admin" | "moderator" | "user" }`.
+ * The rules are in permissions.ts (roleChangeRefusal); it applies at the
+ * user's next request.
+ */
+moderation.put('/users/:login/role', async (c) => {
+    const actor = requireStaff(c);
+    const user = await findUser(c);
+    const { role } = await readJson<{ role?: unknown }>(c);
+    const refusal = roleChangeRefusal(actor, user, role);
+    if (refusal) fail(refusal.status, refusal.message);
+    if (role === user.role) return c.json({ ok: true, role });
+    await c.env.DB.batch([
+        role === 'user'
+            ? c.env.DB.prepare(`DELETE FROM staff WHERE user_id = ?`).bind(user.id)
+            : c.env.DB.prepare(
+                  `INSERT INTO staff (user_id, role, granted_by) VALUES (?1, ?2, ?3)
+                   ON CONFLICT (user_id) DO UPDATE SET
+                       role = excluded.role, granted_by = excluded.granted_by, granted_at = datetime('now')`,
+              ).bind(user.id, role, actor.id),
+        // users.role = 'moderator' from before migration 0009 would otherwise only go at their next sign-in
+        c.env.DB.prepare(`UPDATE users SET role = 'user' WHERE id = ? AND role = 'moderator'`).bind(user.id),
+    ]);
+    return c.json({ ok: true, role });
 });
 
 /**
@@ -391,6 +478,7 @@ moderation.post('/users/:login/unban', async (c) => {
  * were already reviewed as pull requests.
  */
 moderation.post('/import', async (c) => {
+    requirePermission(c, 'items.import');
     let form: FormData;
     try {
         form = await c.req.formData();

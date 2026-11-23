@@ -125,6 +125,39 @@ const COMMUNITY_STRINGS = {
     'role-user': 'користувач',
     'role-moderator': 'модератор',
     'role-banned': 'заблоковано',
+    'role-main_admin': 'головний адмін',
+    'role-admin': 'адмін',
+    'mod-roles': 'Ролі',
+    'role': 'Роль',
+    'roles-matrix': 'Хто що може',
+    'roles-matrix-hint': 'Дозволи кожної ролі задано в api/src/permissions.ts. Заблоковані не можуть нічого.',
+    'roles-permission': 'Дозвіл',
+    'roles-you': 'ви',
+    'roles-main': 'Головні адміни',
+    'roles-main-hint': 'Можуть усе, зокрема призначати інших головних адмінів. Власну роль не змінює ніхто, тож хоча б один головний адмін лишається завжди.',
+    'roles-staff': 'Адміни й модератори',
+    'roles-no-main': 'Головних адмінів немає. Призначте першого через D1 (див. README).',
+    'roles-no-staff': 'Поки нікого.',
+    'roles-granted': 'призначив {by} · {date}',
+    'roles-granted-date': 'з {date}',
+    'roles-add': 'Додати до команди',
+    'roles-add-hint': 'Людина має хоча б раз увійти на сайт. Роль діє одразу, без повторного входу.',
+    'roles-login': 'GitHub-логін',
+    'roles-grant': 'Призначити',
+    'confirm-role': 'Змінити роль {login} на «{role}»?',
+    'role-changed': 'Роль змінено.',
+    'perm-review': 'Перевіряти завантаження: перегляд файлів, схвалення, відхилення',
+    'perm-reports': 'Бачити й закривати скарги',
+    'perm-items.edit': 'Редагувати будь-який елемент, приховувати й публікувати, змінювати автора й власника',
+    'perm-items.delete': 'Видаляти елементи назавжди',
+    'perm-items.import': 'Імпортувати додатки зі старого репозиторію',
+    'perm-users.view': 'Бачити всіх користувачів і їхню активність',
+    'perm-users.manage': 'Довіряти авторам, вести нотатки, завершувати сесії, прибирати оцінки',
+    'perm-users.ban': 'Блокувати й розблоковувати',
+    'perm-roles.moderator': 'Призначати й знімати модераторів',
+    'perm-roles.admin': 'Призначати й знімати адмінів',
+    'perm-roles.main_admin': 'Призначати й знімати головних адмінів (крім себе)',
+    'perm-limits.exempt': 'Без лімітів на елементи, завантаження й зміни',
     'system-account': 'обліковий запис каталогу',
     'items-count': 'елементів: {n}',
     'joined': 'з {date}',
@@ -163,7 +196,6 @@ const COMMUNITY_STRINGS = {
     'user-items': 'Елементи',
     'user-reports': 'Скарги від користувача',
     'handed-over': 'передано',
-    'role-note': 'Роль модератора задається в MODERATORS (api/wrangler.toml).',
     'note-badge': 'є нотатка',
     'view': 'Переглянути',
     'download': 'Завантажити',
@@ -298,6 +330,39 @@ const COMMUNITY_STRINGS = {
     'role-user': 'user',
     'role-moderator': 'moderator',
     'role-banned': 'banned',
+    'role-main_admin': 'main admin',
+    'role-admin': 'admin',
+    'mod-roles': 'Roles',
+    'role': 'Role',
+    'roles-matrix': 'Who can do what',
+    'roles-matrix-hint': "Each role's permissions are set in api/src/permissions.ts. Banned users can do nothing.",
+    'roles-permission': 'Permission',
+    'roles-you': 'you',
+    'roles-main': 'Main admins',
+    'roles-main-hint': 'They can do everything, including making other main admins. Nobody changes their own role, so at least one main admin always stays.',
+    'roles-staff': 'Admins and moderators',
+    'roles-no-main': 'There are no main admins. Grant the first one through D1 (see the README).',
+    'roles-no-staff': 'Nobody yet.',
+    'roles-granted': 'granted by {by} · {date}',
+    'roles-granted-date': 'since {date}',
+    'roles-add': 'Add to the team',
+    'roles-add-hint': 'They must have signed in at least once. The role applies right away, without signing in again.',
+    'roles-login': 'GitHub login',
+    'roles-grant': 'Grant',
+    'confirm-role': 'Change the role of {login} to "{role}"?',
+    'role-changed': 'Role changed.',
+    'perm-review': 'Review uploads: preview files, approve, reject',
+    'perm-reports': 'See and close reports',
+    'perm-items.edit': 'Edit any item, hide or publish it, change its author and owner',
+    'perm-items.delete': 'Delete items for good',
+    'perm-items.import': 'Import apps from the old repository',
+    'perm-users.view': 'See every user and their activity',
+    'perm-users.manage': 'Trust authors, keep notes, end sessions, remove ratings',
+    'perm-users.ban': 'Ban and unban users',
+    'perm-roles.moderator': 'Make and remove moderators',
+    'perm-roles.admin': 'Make and remove admins',
+    'perm-roles.main_admin': 'Make and remove main admins (not themselves)',
+    'perm-limits.exempt': 'No limits on items, uploads and changes',
     'system-account': 'catalog account',
     'items-count': 'items: {n}',
     'joined': 'since {date}',
@@ -336,7 +401,6 @@ const COMMUNITY_STRINGS = {
     'user-items': 'Items',
     'user-reports': 'Reports by this user',
     'handed-over': 'handed over',
-    'role-note': 'The moderator role is set in MODERATORS (api/wrangler.toml).',
     'note-badge': 'has a note',
     'view': 'View',
     'download': 'Download',
@@ -445,6 +509,72 @@ class CommunityUI {
     return this.app.escapeHtml(text == null ? '' : String(text));
   }
 
+  // --- Roles ---------------------------------------------------------------
+  // The API decides; these only choose which controls to show. The list of
+  // permissions comes with /auth/me, the matrix itself from /mod/roles
+
+  can(permission) {
+    return !!this.user && (this.user.permissions || []).includes(permission);
+  }
+
+  isStaffRole(role) {
+    return ['main_admin', 'admin', 'moderator'].includes(role);
+  }
+
+  isStaff() {
+    return !!this.user && this.isStaffRole(this.user.role);
+  }
+
+  /** Staff roles the signed-in user may grant and take back. */
+  assignableRoles() {
+    return ['main_admin', 'admin', 'moderator'].filter(role => this.can(`roles.${role}`));
+  }
+
+  /** Same rules as roleChangeRefusal in api/src/permissions.ts. */
+  canChangeRole(target) {
+    const assignable = this.assignableRoles();
+    if (!assignable.length || target.system || target.id === this.user.id) return false;
+    return target.role === 'user' || assignable.includes(target.role);
+  }
+
+  roleName(role) {
+    return this.t(`role-${role}`);
+  }
+
+  roleSelect(target) {
+    const options = [...this.assignableRoles(), 'user'];
+    return `
+      <label class="form-field mod-role">
+        <span class="form-label">${this.esc(this.t('role'))}</span>
+        <select data-role-of="${this.esc(target.login)}" data-current="${this.esc(target.role)}">
+          ${options.map(role => `<option value="${role}" ${role === target.role ? 'selected' : ''}>${
+              this.esc(this.roleName(role))}</option>`).join('')}
+        </select>
+      </label>`;
+  }
+
+  /** Role selects in `box`: confirm, PUT, then `done(login, role)` or put the old value back. */
+  bindRoleSelects(box, done) {
+    box.querySelectorAll('select[data-role-of]').forEach(select => {
+      select.addEventListener('change', async () => {
+        const login = select.dataset.roleOf;
+        const role = select.value;
+        if (!confirm(this.t('confirm-role', {login, role: this.roleName(role)}))) {
+          select.value = select.dataset.current;
+          return;
+        }
+        try {
+          await this.request('PUT', `/mod/users/${encodeURIComponent(login)}/role`, {role});
+          select.dataset.current = role;
+          done(login, role);
+        } catch (error) {
+          select.value = select.dataset.current;
+          alert(this.t('error', {message: error.message}));
+        }
+      });
+    });
+  }
+
   // --- Session -------------------------------------------------------------
 
   async restoreSession() {
@@ -545,7 +675,7 @@ class CommunityUI {
     }
 
     const items = [['my', this.t('tab-my')]];
-    if (this.user.role === 'moderator') items.push(['mod', this.t('tab-mod')]);
+    if (this.isStaff()) items.push(['mod', this.t('tab-mod')]);
     box.innerHTML = `
       <button class="account-trigger" aria-haspopup="menu" aria-expanded="false">
         ${this.user.avatar_url ? `<img src="${this.esc(this.avatarUrl(this.user.avatar_url))}" alt="" class="account-avatar">` : ''}
@@ -1398,12 +1528,19 @@ class CommunityUI {
   // --- Moderation ------------------------------------------------------------
 
   async showModeration() {
-    const statuses = ['pending_review', 'pending_scan', 'infected', 'rejected', 'approved'];
+    if (!this.isStaff()) {
+      this.container().innerHTML = `<p class="community-hint">${this.esc(this.t('mod-empty'))}</p>`;
+      return;
+    }
+    const statuses = this.can('review') ? ['pending_review', 'pending_scan', 'infected', 'rejected', 'approved'] : [];
+    // Only the tabs this role can use; Roles is there for every staff member
     const tabs = [
       ...statuses.map(s => [s, this.t(`status-${s}`)]),
-      ['apps', this.t('mod-apps')],
-      ['users', this.t('mod-users')],
+      ...(this.can('items.edit') ? [['apps', this.t('mod-apps')]] : []),
+      ...(this.can('users.view') ? [['users', this.t('mod-users')]] : []),
+      ['roles', this.t('mod-roles')],
     ];
+    if (!tabs.some(([s]) => s === this.modStatus)) this.modStatus = tabs[0][0];
     const filter = `
       <h2 class="community-title">${this.esc(this.t('mod-title'))}</h2>
       <div class="community-filter">
@@ -1423,10 +1560,15 @@ class CommunityUI {
       bindTabs(this.container());
       return;
     }
+    if (this.modStatus === 'roles') {
+      await this.showRoles(filter);
+      bindTabs(this.container());
+      return;
+    }
 
     const [queue, reports] = await Promise.all([
       this.request('GET', `/mod/queue?status=${this.modStatus}`),
-      this.request('GET', '/mod/reports'),
+      this.can('reports') ? this.request('GET', '/mod/reports') : {items: []},
     ]);
     const box = this.container();
 
@@ -1561,6 +1703,129 @@ class CommunityUI {
     search.addEventListener('input', () => { this.modSearch = search.value; });
   }
 
+  /**
+   * Roles: the permission matrix as the API defines it, the main admins,
+   * admins and moderators with who granted the role, and a form to add
+   * someone. One request, two when the form needs the user list.
+   */
+  async showRoles(filter) {
+    const assignable = this.assignableRoles();
+    const [roles, users] = await Promise.all([
+      this.request('GET', '/mod/roles'),
+      assignable.length && this.can('users.view') ? this.request('GET', '/mod/users') : null,
+    ]);
+    const columns = roles.roles.filter(role => role !== 'banned');
+    const mark = yes => yes ?
+        `<span class="perm-yes" role="img" aria-label="✓">✓</span>` :
+        `<span class="perm-no" role="img" aria-label="—">—</span>`;
+    const person = u => `
+      ${u.avatar_url ? `<img src="${this.esc(this.avatarUrl(u.avatar_url))}" alt="" class="account-avatar">` : ''}
+      <div>
+        <h3>${this.esc(u.name || u.login)}</h3>
+        <code class="community-slug">@${this.esc(u.login)}</code>`;
+    const staffCard = u => {
+      const granted = u.granted_by ?
+          this.t('roles-granted', {by: `@${u.granted_by}`, date: this.formatTime(u.granted_at)}) :
+          this.t('roles-granted-date', {date: this.formatTime(u.granted_at)});
+      const target = {id: u.id, login: u.login, role: u.role};
+      return `
+        <div class="community-card">
+          <div class="community-card-head">
+            <div class="role-person">${person(u)}
+                <span class="community-hint">${this.esc(this.roleName(u.role))} · ${this.esc(granted)}</span>
+              </div>
+            </div>
+            <div class="community-actions">${this.canChangeRole(target) ? this.roleSelect(target) : ''}</div>
+          </div>
+        </div>`;
+    };
+    const mains = roles.staff.filter(u => u.role === 'main_admin');
+    const others = roles.staff.filter(u => u.role !== 'main_admin');
+    // Candidates for the form: people who signed in and have no role yet
+    const candidates = users ? users.items.filter(u => !u.system && u.role === 'user') : [];
+
+    this.container().innerHTML = `
+      ${filter}
+      <h3 class="community-title">${this.esc(this.t('roles-matrix'))}</h3>
+      <div class="role-matrix-wrap">
+        <table class="role-matrix">
+          <thead>
+            <tr>
+              <th scope="col">${this.esc(this.t('roles-permission'))}</th>
+              ${columns.map(role => `<th scope="col" class="${role === this.user.role ? 'is-you' : ''}">
+                <span class="role-name">${this.esc(this.roleName(role))}</span>${
+                    role === this.user.role ? `<div class="community-hint">${this.esc(this.t('roles-you'))}</div>` : ''}
+              </th>`).join('')}
+            </tr>
+          </thead>
+          <tbody>
+            ${roles.permissions.map(permission => `
+              <tr>
+                <th scope="row">${this.esc(this.t(`perm-${permission}`))}<div class="community-hint"><code>${this.esc(permission)}</code></div></th>
+                ${columns.map(role => `<td class="${role === this.user.role ? 'is-you' : ''}">${
+                    mark((roles.matrix[role] || []).includes(permission))}</td>`).join('')}
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+      <p class="community-hint">${this.esc(this.t('roles-matrix-hint'))}</p>
+
+      <h3 class="community-title">${this.esc(this.t('roles-main'))}</h3>
+      <div class="community-list">
+        ${mains.length ? mains.map(staffCard).join('') :
+            `<p class="community-hint mod-alert">${this.esc(this.t('roles-no-main'))}</p>`}
+        <p class="community-hint">${this.esc(this.t('roles-main-hint'))}</p>
+      </div>
+
+      <h3 class="community-title">${this.esc(this.t('roles-staff'))}</h3>
+      <div class="community-list">
+        ${others.length ? others.map(staffCard).join('') :
+            `<p class="community-hint">${this.esc(this.t('roles-no-staff'))}</p>`}
+      </div>
+
+      ${assignable.length ? `
+        <h3 class="community-title">${this.esc(this.t('roles-add'))}</h3>
+        <form class="community-panel community-form role-add">
+          <div class="form-row">
+            <label class="form-field"><span class="form-label">${this.esc(this.t('roles-login'))}</span>
+              <input name="login" list="roleCandidates" required autocomplete="off" spellcheck="false">
+              <datalist id="roleCandidates">${candidates.map(u =>
+                  `<option value="${this.esc(u.login)}">${this.esc(u.name || '')}</option>`).join('')}</datalist>
+            </label>
+            <label class="form-field"><span class="form-label">${this.esc(this.t('role'))}</span>
+              <select name="role">${assignable.map(role =>
+                  `<option value="${role}">${this.esc(this.roleName(role))}</option>`).join('')}</select>
+            </label>
+          </div>
+          <p class="community-hint">${this.esc(this.t('roles-add-hint'))}</p>
+          <div class="form-error" hidden></div>
+          <div class="form-actions">
+            <button class="download-btn" type="submit">${this.esc(this.t('roles-grant'))}</button>
+          </div>
+        </form>` : ''}`;
+
+    const box = this.container();
+    this.bindRoleSelects(box, () => this.show('mod'));
+    const form = box.querySelector('.role-add');
+    if (form) {
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const login = form.elements.login.value.trim().replace(/^@/, '');
+        const role = form.elements.role.value;
+        const errorBox = form.querySelector('.form-error');
+        errorBox.hidden = true;
+        if (!login || !confirm(this.t('confirm-role', {login, role: this.roleName(role)}))) return;
+        try {
+          await this.request('PUT', `/mod/users/${encodeURIComponent(login)}/role`, {role});
+          this.show('mod');
+        } catch (error) {
+          errorBox.textContent = this.t('error', {message: error.message});
+          errorBox.hidden = false;
+        }
+      });
+    }
+  }
+
   /** Everything about one item: fields, status, versions with files and review, reports, delete. */
   async renderItemPanel(panel, slug) {
     const path = `/apps/${encodeURIComponent(slug)}`;
@@ -1593,7 +1858,8 @@ class CommunityUI {
               `<button class="btn-sm" data-item="hide">${this.esc(this.t('hide'))}</button>
                <a class="btn-sm" href="?type=${this.esc(catalogType)}&item=${encodeURIComponent(app.slug)}">${this.esc(this.t('view-in-catalog'))}</a>` :
               `<button class="btn-sm" data-item="publish">${this.esc(this.t('publish'))}</button>`}
-          <button class="btn-sm danger" data-item="delete">${this.esc(this.t('delete-item'))}</button>
+          ${this.can('items.delete') ?
+              `<button class="btn-sm danger" data-item="delete">${this.esc(this.t('delete-item'))}</button>` : ''}
         </div>
       </div>
       <h4>${this.esc(this.t('versions'))}</h4>
@@ -1601,8 +1867,8 @@ class CommunityUI {
         <div class="mod-version" data-version="${v.id}">
           ${this.renderVersion(v)}
           <div class="community-actions">
-            ${v.status === 'pending_review' ? `<button class="download-btn" data-review="approve">${this.esc(this.t('approve'))}</button>` : ''}
-            ${v.status !== 'approved' && v.status !== 'rejected' && v.status !== 'infected' ?
+            ${this.can('review') && v.status === 'pending_review' ? `<button class="download-btn" data-review="approve">${this.esc(this.t('approve'))}</button>` : ''}
+            ${this.can('review') && v.status !== 'approved' && v.status !== 'rejected' && v.status !== 'infected' ?
                 `<button class="btn-sm" data-review="reject">${this.esc(this.t('reject'))}</button>` : ''}
           </div>
         </div>`).join('') : `<p class="community-hint">${this.esc(this.t('no-versions'))}</p>`}
@@ -1650,7 +1916,7 @@ class CommunityUI {
       if (btn.dataset.item === 'hide' && !confirm(this.t('confirm-hide'))) return;
       if (await run(() => this.request('PATCH', path, {status: btn.dataset.item === 'hide' ? 'hidden' : 'published'}))) reload();
     }));
-    panel.querySelector('[data-item="delete"]').addEventListener('click', async () => {
+    panel.querySelector('[data-item="delete"]')?.addEventListener('click', async () => {
       const typed = prompt(this.t('confirm-delete', {slug}), '');
       if (typed === null) return;
       if (await run(() => this.request('DELETE', `/mod/apps/${encodeURIComponent(slug)}`, {confirm: typed.trim()}))) {
@@ -1686,30 +1952,38 @@ class CommunityUI {
     }
     const lastSignIn = stats.last_sign_in ?
         this.t('last-sign-in', {date: this.formatTime(stats.last_sign_in)}) : this.t('never-signed-in');
-    const banAction = user.system || user.role === 'moderator' ? '' : user.role === 'banned' ?
+    // Staff are not banned: whoever may take the role away does that first (the API refuses too)
+    const banAction = !this.can('users.ban') || user.system || this.isStaffRole(user.role) ? '' : user.role === 'banned' ?
         `<button class="btn-sm" data-user="unban">${this.esc(this.t('unban'))}</button>` :
         `<button class="btn-sm danger" data-user="ban">${this.esc(this.t('ban'))}</button>`;
+    const granted = user.role_granted_at ? ` · ${this.t(user.role_granted_by ? 'roles-granted' : 'roles-granted-date',
+        {by: user.role_granted_by, date: this.formatTime(user.role_granted_at)})}` : '';
+    const roleLine = user.system ? '' : this.canChangeRole(user) ?
+        `<div class="form-row">${this.roleSelect(user)}</div>` :
+        `<p class="community-hint">${this.esc(this.t('role'))}: ${this.esc(this.roleName(user.role))}${this.esc(granted)}</p>`;
+    const manage = this.can('users.manage');
     panel.innerHTML = `
       ${user.bio ? `<p>${this.esc(user.bio)}</p>` : ''}
       ${facts.length ? `<p class="community-hint">${facts.join(' · ')}</p>` : ''}
       <p class="community-hint">${this.esc(this.t('user-stats', {
           created: stats.created, today: stats.created_today, ratings: stats.ratings, sessions: stats.sessions}))} · ${
           this.esc(lastSignIn)}</p>
-      ${user.role === 'moderator' ? `<p class="community-hint">${this.esc(this.t('role-note'))}</p>` : ''}
+      ${roleLine}
       <div class="community-form">
-        ${user.system ? '' : `
+        ${user.system || !manage ? '' : `
           <label class="mod-check">
             <input type="checkbox" data-user-field="trusted" ${user.trusted ? 'checked' : ''}>
             <span><strong>${this.esc(this.t('trusted'))}</strong><br><span class="community-hint">${this.esc(this.t('trusted-hint'))}</span></span>
           </label>`}
-        <label class="form-field"><span class="form-label">${this.esc(this.t('mod-note'))}</span>
-          <textarea data-user-field="note" rows="3" maxlength="2000">${this.esc(user.mod_note || '')}</textarea>
-        </label>
+        ${manage ? `
+          <label class="form-field"><span class="form-label">${this.esc(this.t('mod-note'))}</span>
+            <textarea data-user-field="note" rows="3" maxlength="2000">${this.esc(user.mod_note || '')}</textarea>
+          </label>` : ''}
         <div class="form-error" hidden></div>
         <p class="community-hint mod-saved" hidden></p>
         <div class="form-actions">
-          <button class="download-btn" data-user="save">${this.esc(this.t('save'))}</button>
-          ${user.system ? '' : `
+          ${manage ? `<button class="download-btn" data-user="save">${this.esc(this.t('save'))}</button>` : ''}
+          ${user.system || !manage ? '' : `
             <button class="btn-sm" data-user="sign-out">${this.esc(this.t('sign-out-all'))}</button>
             <button class="btn-sm" data-user="ratings">${this.esc(this.t('remove-ratings'))}</button>`}
           ${banAction}
@@ -1746,7 +2020,8 @@ class CommunityUI {
         return false;
       }
     };
-    panel.querySelector('[data-user="save"]').addEventListener('click', () => {
+    this.bindRoleSelects(panel, () => this.renderUserPanel(panel, login));
+    panel.querySelector('[data-user="save"]')?.addEventListener('click', () => {
       const trusted = panel.querySelector('[data-user-field="trusted"]');
       const body = {note: panel.querySelector('[data-user-field="note"]').value.trim() || null};
       if (trusted) body.trusted = trusted.checked;
@@ -1808,9 +2083,9 @@ class CommunityUI {
 
   renderModUser(u) {
     const search = [u.login, u.name || ''].join(' ').toLowerCase();
-    const role = u.system ? this.t('system-account') : this.t(`role-${u.role}`);
-    // The catalog account and moderators cannot be banned (the API refuses too)
-    const action = u.system || u.role === 'moderator' ? '' : u.role === 'banned' ?
+    const role = u.system ? this.t('system-account') : this.roleName(u.role);
+    // The catalog account and staff cannot be banned (the API refuses too)
+    const action = !this.can('users.ban') || u.system || this.isStaffRole(u.role) ? '' : u.role === 'banned' ?
         `<button class="btn-sm" data-user-action="unban" data-login="${this.esc(u.login)}">${this.esc(this.t('unban'))}</button>` :
         `<button class="btn-sm danger" data-user-action="ban" data-login="${this.esc(u.login)}">${this.esc(this.t('ban'))}</button>`;
     const profile = u.system ? '' :
@@ -1857,7 +2132,7 @@ class CommunityUI {
                 // Imported apps are owned by the catalog account: banning it
                 // would hide all of them, so the action here is the hand-over
                 `<button class="btn-sm" data-mod="hand-over">${this.esc(this.t('hand-over'))}</button>` :
-                `<button class="btn-sm danger" data-mod="ban">${this.esc(this.t('ban'))}</button>`}
+                this.can('users.ban') ? `<button class="btn-sm danger" data-mod="ban">${this.esc(this.t('ban'))}</button>` : ''}
           </div>
         </div>
         ${this.renderVersion(version)}

@@ -12,10 +12,6 @@ GITHUB_CLIENT_ID = "Ov23li85TrkxrZwn00ZP"
 # Only exact sites we control: lilka-dev.github.io would be every Pages site
 # of the org. Local development adds http://localhost:8000 in .dev.vars
 ALLOWED_ORIGINS = "https://catalog.lilka.dev"
-# Comma-separated GitHub numeric user ids that get the moderator role on sign-in.
-# Ids, not logins: a login is freed by a rename and can be taken by anyone.
-# Find one with: curl -s https://api.github.com/users/<login> | jq .id
-MODERATORS = "70693212" # black-ghost-off
 # Both workflows live in the catalog repo: processing (repository_dispatch
 # "scan-version") and the Pages mirror (repository_dispatch "api-sync")
 SCAN_REPO = "lilka-dev/catalog"

@@ -171,7 +171,7 @@ All bodies are JSON unless noted. Authenticated calls send
 | GET | `/auth/login?return=<url>` | anyone | Redirects to GitHub. `return` must be on `ALLOWED_ORIGINS`; the OAuth state is signed, nothing is stored |
 | GET | `/auth/callback` | GitHub | Redirects to `return#lilka_token=<token>` |
 | POST | `/auth/logout` | user | Ends the session |
-| GET | `/auth/me` | user | Current user and `ratings` (slug → stars) they gave, so the site shows them without a request per app |
+| GET | `/auth/me` | user | Current user with their effective `role` and `permissions`, and `ratings` (slug → stars) they gave, so the site shows them without a request per app |
 | GET | `/catalog/{apps,wallpapers,mods}/index_<n>.json` | mirror job | Ids of published items, 12 per page |
 | GET | `/catalog/<dir>/<id>/index.json`, `index_short.json` | mirror job | Manifests in build.py's format |
 | GET | `/catalog/<dir>/<id>/static/<file>`, `package.zip` | mirror job | Files |
@@ -190,7 +190,7 @@ All bodies are JSON unless noted. Authenticated calls send
 | GET | `/files/:slug/:version/:name` | owner, mod | File by version id, for "My apps" and moderation previews |
 | GET | `/mod/queue?status=` | mod | Versions by status, default `pending_review` |
 | GET | `/mod/apps` | mod | Every item with owner, creator, version and pending counts, rating, open reports |
-| DELETE | `/mod/apps/:slug` | mod | `{ "confirm": "<slug>" }`: deletes the item, its versions, ratings, reports and R2 files |
+| DELETE | `/mod/apps/:slug` | admin | `{ "confirm": "<slug>" }`: deletes the item, its versions, ratings, reports and R2 files |
 | GET | `/mod/users` | mod | Everyone who has signed in, with role, trusted, note flag and item count |
 | GET | `/mod/users/:login` | mod | Profile, note, trusted, activity (created, ratings, sessions, last sign-in), items, reports filed |
 | PATCH | `/mod/users/:login` | mod | `{ "trusted"?: bool, "note"?: string \| null }`; trusted lifts the per-account item limits |
@@ -200,12 +200,17 @@ All bodies are JSON unless noted. Authenticated calls send
 | POST | `/mod/versions/:id/reject` | mod | `{ "note": "reason" }` |
 | GET | `/mod/reports[?slug=]` | mod | Open reports, or every report on one item |
 | POST | `/mod/reports/:id/resolve` | mod | |
-| POST | `/mod/users/:login/ban` / `unban` | mod | Ban hides all their apps and ends sessions |
-| POST | `/mod/import[?replace]` | mod | One app from the old repo (`scripts/import_catalog.py`) |
+| POST | `/mod/users/:login/ban` / `unban` | mod | Ban hides all their apps and ends sessions; staff are refused (take the role away first) |
+| GET | `/mod/roles` | staff | The permission matrix, everyone with a role and who granted it, and the roles the caller may grant |
+| PUT | `/mod/users/:login/role` | admin, main admin | `{ "role": "main_admin" \| "admin" \| "moderator" \| "user" }`; admins grant and take back moderator, main admins every role; never one's own |
+| POST | `/mod/import[?replace]` | admin | One app from the old repo (`scripts/import_catalog.py`) |
 | GET | `/scan/pending`, `/scan/versions/:id`, `/scan/files/:id/:name` | processor | For `scripts/process.py` |
 | POST | `/scan/versions/:id` | processor | Multipart: `result` (`clean` \| `infected`), `detail`, `security`, `icon_min`, `package`, files `artifact[]` |
 
-"mirror job" means `Authorization: Bearer <MIRROR_SECRET>`, "processor"
+"mod" means a moderator or higher, "admin" an admin or a main admin: each
+route asks for one permission of `MATRIX` in `src/permissions.ts` (see the
+table in the [main README](../README.md#roles-and-moderation)). "mirror job"
+means `Authorization: Bearer <MIRROR_SECRET>`, "processor"
 `Bearer <SCAN_SECRET>`; both fail closed when the secret is not set.
 
 Limits: 8 MB per file, 24 MB per upload, 16 extra files, 6 screenshots, 5
@@ -241,7 +246,7 @@ npm ci
 cp .dev.vars.example .dev.vars   # dev placeholders; set GITHUB_CLIENT_SECRET to any value
 npm run db:migrate:local
 npm run dev            # http://localhost:8787
-npm run smoke          # in another terminal: 86 end-to-end checks
+npm run smoke          # in another terminal: 196 end-to-end checks
 npm run typecheck
 ```
 

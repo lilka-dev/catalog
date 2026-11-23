@@ -13,12 +13,6 @@ export function requireUser(c: Context<AppEnv>): User {
     return user;
 }
 
-export function requireModerator(c: Context<AppEnv>): User {
-    const user = requireUser(c);
-    if (user.role !== 'moderator') fail(403, 'moderator only');
-    return user;
-}
-
 export function csv(value: string | undefined): string[] {
     return (value ?? '')
         .split(',')
