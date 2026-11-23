@@ -255,6 +255,10 @@ body {
 main {
     flex: 1;
     padding: 2rem 24px;
+    /* body is a flex column and .container centres itself with auto margins,
+       which sizes main to its content: one wide table or select made the
+       whole page wider than a phone. Full width, capped by max-width */
+    width: 100%;
 }
 
 .loading {
@@ -2235,7 +2239,15 @@ footer {
 }
 
 .mod-owner {
-    min-width: 12rem;
+    min-width: min(12rem, 100%);
+}
+
+/* The owner list is as wide as its longest login; on a phone it shrinks to the card */
+.community-actions,
+.mod-owner,
+.mod-owner select,
+.mod-role {
+    max-width: 100%;
 }
 
 .community-slug {
