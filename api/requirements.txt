@@ -2,5 +2,5 @@
 # check that icon_min.bin comes out byte for byte the same (13.0.0: all 61
 # live icons identical), since Lilka draws those bytes directly
 Pillow==13.0.0
-PyYAML==6.0.3
+PyYAML==6.0.4
 requests==2.34.2
